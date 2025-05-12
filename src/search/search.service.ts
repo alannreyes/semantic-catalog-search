@@ -42,10 +42,10 @@ export class SearchService {
     
     // Obtener la clave API de OpenAI de las variables de entorno
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-if (!apiKey) {
-  throw new Error('OPENAI_API_KEY is not defined');
-}
-this.openaiApiKey = apiKey;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY is not defined');
+    }
+    this.openaiApiKey = apiKey;
   }
 
   // Extraer código interno de metadata o texto
@@ -175,18 +175,26 @@ this.openaiApiKey = apiKey;
       let resultadosTexto = `Resultados de búsqueda para: "${query}"\n\n`;
       
       results.forEach((item, index) => {
-        resultadosTexto += `${index+1}) ${item.articulo_encontrado} (${item.codigo_interno}) [${item.distancia_coseno}]\n`;
+        // Asegurarse de que articulo_encontrado es un string
+        let nombreProducto = "";
+        if (typeof item.articulo_encontrado === "string") {
+          nombreProducto = item.articulo_encontrado;
+        } else if (item.text) {
+          nombreProducto = item.text;
+        }
+        
+        resultadosTexto += `${index+1}) ${nombreProducto} (${item.codigo_interno}) [${item.distancia_coseno}]\n`;
       });
       
       // Configurar la solicitud a la API de OpenAI
       const openaiResponse = await axios.post<OpenAIResponse>(
         'https://api.openai.com/v1/chat/completions',
         {
-          model: 'gpt-4.1-mini',
+          model: 'gpt-3.5-turbo', // Modelo más común y disponible
           messages: [
             {
               role: 'system',
-              content: 'Transforma la siguiente información en una lista ordenada por similitud de 5-6 líneas de texto plano. Muestra el producto más parecido en primer lugar, seguido de alternativas. Si el primer producto es muy similar o idéntico, indica "COINCIDENCIA EXACTA" junto a él. No uses formato JSON, markdown ni HTML, solo texto plano con saltos de línea.'
+              content: 'Analiza estos resultados de búsqueda y reorganízalos en 5 líneas por orden de similitud real. Ignora cualquier formato JSON y extrae solo los nombres de productos, códigos y porcentajes. Si el primer producto es muy similar al buscado (>50%), añade "- COINCIDENCIA EXACTA" al final de esa línea. Responde SOLO con 5 líneas en este formato exacto: "1) NOMBRE DEL PRODUCTO (CÓDIGO) [PORCENTAJE] - COINCIDENCIA EXACTA si aplica"'
             },
             {
               role: 'user',
@@ -206,19 +214,52 @@ this.openaiApiKey = apiKey;
       
       // Extraer la respuesta del modelo
       const gptResponse = openaiResponse.data.choices[0].message.content;
-      return gptResponse;
+      
+      // Formatear la respuesta final con 6 líneas (1 de consulta + 5 de resultados)
+      return `${query}\n${gptResponse}`;
       
     } catch (error) {
       console.error('Error al procesar con GPT:', error.message);
       
-      // Si falla la llamada a GPT, devolvemos los resultados formateados manualmente
-      let resultadosTexto = `RESULTADOS PARA: "${query}"\n\n`;
+      // Si falla la llamada a GPT, procesamos manualmente
+      let primeraLinea = query;
+      let lineasResultado = "";
       
-      results.forEach((item, index) => {
-        resultadosTexto += `${index+1}) ${item.articulo_encontrado} (${item.codigo_interno}) [${item.distancia_coseno}]\n`;
+      // Ordenar resultados por porcentaje de similitud
+      const resultadosOrdenados = [...results].sort((a, b) => {
+        const porcA = parseInt((a.distancia_coseno || "0%").replace("%", ""));
+        const porcB = parseInt((b.distancia_coseno || "0%").replace("%", ""));
+        return porcB - porcA;
       });
       
-      return resultadosTexto;
+      // Generar 5 líneas formateadas
+      resultadosOrdenados.slice(0, 5).forEach((item, index) => {
+        // Extraer nombre limpio del producto
+        let nombreProducto = "";
+        if (typeof item.articulo_encontrado === "string") {
+          nombreProducto = item.articulo_encontrado;
+        } else if (item.text) {
+          nombreProducto = item.text;
+        }
+        
+        // Extraer código y porcentaje
+        const codigo = item.codigo_interno || "[sin código]";
+        const similitud = item.distancia_coseno || "0%";
+        const porcentaje = parseInt(similitud.replace("%", "")) || 0;
+        
+        // Formar línea
+        let linea = `${index+1}) ${nombreProducto} (${codigo}) [${similitud}]`;
+        
+        // Añadir indicador de coincidencia exacta al primer resultado si tiene alta similitud
+        if (index === 0 && porcentaje >= 50) {
+          linea += " - COINCIDENCIA EXACTA";
+        }
+        
+        lineasResultado += linea + "\n";
+      });
+      
+      // Devolver 6 líneas: la consulta + 5 resultados
+      return `${primeraLinea}\n${lineasResultado.trim()}`;
     }
   }
 
@@ -228,10 +269,10 @@ this.openaiApiKey = apiKey;
       // Intentar con búsqueda vectorial primero
       const searchResults = await this.searchProductsWithVector(query, limit);
       
-      // Procesar los resultados con GPT
+      // Procesar los resultados con GPT para obtener texto formateado
       const processedResults = await this.processResultsWithGPT(searchResults, query);
       
-      return processedResults; // Devuelve directamente el texto sin envolver en JSON
+      return processedResults; // Devuelve directamente las 6 líneas de texto
       
     } catch (error) {
       console.log('Vector search failed, trying trigram search:', error.message);
@@ -243,11 +284,12 @@ this.openaiApiKey = apiKey;
         // Procesar los resultados con GPT
         const processedResults = await this.processResultsWithGPT(searchResults, query);
         
-        return processedResults; // Devuelve directamente el texto sin envolver en JSON
+        return processedResults; // Devuelve directamente las 6 líneas de texto
         
       } catch (secondError) {
         console.error('All search methods failed:', secondError.message);
-        throw new Error(`Error performing semantic search: ${secondError.message}`);
+        // Incluso en caso de error, devolver un formato consistente
+        return `${query}\nNo se encontraron resultados: ${secondError.message}`;
       }
     }
   }
