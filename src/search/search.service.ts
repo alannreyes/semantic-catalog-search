@@ -16,7 +16,11 @@ export class SearchService {
     });
     
     // Obtener la clave API de OpenAI de las variables de entorno
-    this.openaiApiKey = this.configService.get('OPENAI_API_KEY');
+    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+if (!apiKey) {
+  throw new Error('OPENAI_API_KEY is not defined');
+}
+this.openaiApiKey = apiKey;
   }
 
   // Extraer código interno de metadata o texto
