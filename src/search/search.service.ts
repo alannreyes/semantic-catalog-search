@@ -31,24 +31,45 @@ export class SearchService {
         input: query,
       });
       
-      const embedding = embeddingResponse.data[0].embedding;
-      this.logger.log(`Embedding generated successfully (${embedding.length} dimensions)`);
+// Guardar el embedding y hacer log de su tipo
+let embedding = embeddingResponse.data[0].embedding;
+this.logger.log(`Embedding obtenido: tipo=${typeof embedding}, es array=${Array.isArray(embedding)}`);
+
+// Verificar y asegurar que el embedding sea un array
+if (!Array.isArray(embedding)) {
+  this.logger.warn('El embedding no es un array, intentando convertir...');
+  try {
+    if (typeof embedding === 'object') {
+      embedding = Object.values(embedding);
+    } else if (typeof embedding === 'string') {
+      embedding = JSON.parse(embedding);
+    }
+  } catch (error) {
+    this.logger.error(`Error al convertir embedding: ${error.message}`);
+    throw new Error('Formato de embedding inválido');
+  }
+}
+
+this.logger.log(`Embedding procesado (${embedding.length} dimensiones)`);
+
+// Formatear para pgvector - asegurar formato correcto
+const vectorString = `[${embedding.join(',')}]`;
       
       // 2. Buscar en pgvector por similitud
-  const result = await this.pool.query(
+const result = await this.pool.query(
   `SELECT 
     id::TEXT,
     text AS description,
     metadata->>'codigo' AS codigo,
     metadata->>'id' AS product_code,
-    1 - (embedding <=> $1) AS similarity
+    1 - (embedding <=> $1::vector) AS similarity
   FROM 
     productos
   ORDER BY 
-    embedding <=> $1
+    embedding <=> $1::vector
   LIMIT $2`,
-  [embedding, limit]
-  );
+  [vectorString, limit]
+);
       
       this.logger.log(`Found ${result.rows.length} products with similar embeddings`);
       
