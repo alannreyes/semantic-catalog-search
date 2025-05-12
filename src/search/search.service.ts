@@ -35,20 +35,20 @@ export class SearchService {
       this.logger.log(`Embedding generated successfully (${embedding.length} dimensions)`);
       
       // 2. Buscar en pgvector por similitud
-      const result = await this.pool.query(
-        `SELECT 
-          id::TEXT,
-          text->>'id' AS product_code,
-          text->>'text' AS description,
-          text->'metadata'->>'codigo' AS codigo,
-          1 - (embedding <=> $1) AS similarity
-        FROM 
-          productos
-        ORDER BY 
-          embedding <=> $1
-        LIMIT $2`,
-        [embedding, limit]
-      );
+  const result = await this.pool.query(
+  `SELECT 
+    id::TEXT,
+    text AS description,
+    metadata->>'codigo' AS codigo,
+    metadata->>'id' AS product_code,
+    1 - (embedding <=> $1) AS similarity
+  FROM 
+    productos
+  ORDER BY 
+    embedding <=> $1
+  LIMIT $2`,
+  [embedding, limit]
+  );
       
       this.logger.log(`Found ${result.rows.length} products with similar embeddings`);
       
