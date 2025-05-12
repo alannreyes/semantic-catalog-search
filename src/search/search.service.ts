@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
 import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
 
 @Injectable()
 export class SearchService {
   private pool: Pool;
+  private openaiApiKey: string;
 
   constructor(private configService: ConfigService) {
     // Usar directamente DATABASE_URL en lugar de variables individuales
@@ -12,6 +14,9 @@ export class SearchService {
     this.pool = new Pool({
       connectionString: databaseUrl
     });
+    
+    // Obtener la clave API de OpenAI de las variables de entorno
+    this.openaiApiKey = this.configService.get('OPENAI_API_KEY');
   }
 
   // Extraer código interno de metadata o texto
@@ -134,21 +139,92 @@ export class SearchService {
     }
   }
 
-  // Método seguro que intenta diferentes métodos de búsqueda
-  async safeSearch(query: string, limit: number = 5): Promise<any[]> {
+  // Método para procesar los resultados con GPT-4.1 mini
+  async processResultsWithGPT(results: any[], query: string): Promise<string> {
     try {
-      // Primero intenta con búsqueda vectorial para mejores resultados semánticos
-      return await this.searchProductsWithVector(query, limit);
+      // Preparar el texto para enviar a GPT
+      let resultadosTexto = `Resultados de búsqueda para: "${query}"\n\n`;
+      
+      results.forEach((item, index) => {
+        resultadosTexto += `${index+1}) ${item.articulo_encontrado} (${item.codigo_interno}) [${item.distancia_coseno}]\n`;
+      });
+      
+      // Configurar la solicitud a la API de OpenAI
+      const openaiResponse = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: 'gpt-4.1-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'Transforma la siguiente información en una lista ordenada por similitud de 5-6 líneas de texto plano. Muestra el producto más parecido en primer lugar, seguido de alternativas. Si el primer producto es muy similar o idéntico, indica "COINCIDENCIA EXACTA" junto a él. No uses formato JSON, markdown ni HTML, solo texto plano con saltos de línea.'
+            },
+            {
+              role: 'user',
+              content: resultadosTexto
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 500
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${this.openaiApiKey}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      // Extraer la respuesta del modelo
+      const gptResponse = openaiResponse.data.choices[0].message.content;
+      return gptResponse;
+      
+    } catch (error) {
+      console.error('Error al procesar con GPT:', error.message);
+      
+      // Si falla la llamada a GPT, devolvemos los resultados formateados manualmente
+      let resultadosTexto = `RESULTADOS PARA: "${query}"\n\n`;
+      
+      results.forEach((item, index) => {
+        resultadosTexto += `${index+1}) ${item.articulo_encontrado} (${item.codigo_interno}) [${item.distancia_coseno}]\n`;
+      });
+      
+      return resultadosTexto;
+    }
+  }
+
+  // Método para buscar y procesar con GPT en un solo paso
+  async searchAndProcess(query: string, limit: number = 5): Promise<string> {
+    try {
+      // Intentar con búsqueda vectorial primero
+      const searchResults = await this.searchProductsWithVector(query, limit);
+      
+      // Procesar los resultados con GPT
+      const processedResults = await this.processResultsWithGPT(searchResults, query);
+      
+      return processedResults; // Devuelve directamente el texto sin envolver en JSON
+      
     } catch (error) {
       console.log('Vector search failed, trying trigram search:', error.message);
       
       try {
-        // Si falla, intenta con búsqueda de trigram
-        return await this.searchProducts(query, limit);
+        // Si falla, intentar con búsqueda de trigram
+        const searchResults = await this.searchProducts(query, limit);
+        
+        // Procesar los resultados con GPT
+        const processedResults = await this.processResultsWithGPT(searchResults, query);
+        
+        return processedResults; // Devuelve directamente el texto sin envolver en JSON
+        
       } catch (secondError) {
         console.error('All search methods failed:', secondError.message);
         throw new Error(`Error performing semantic search: ${secondError.message}`);
       }
     }
+  }
+
+  // El método safeSearch ahora es un alias de searchAndProcess para compatibilidad
+  async safeSearch(query: string, limit: number = 5): Promise<string> {
+    return this.searchAndProcess(query, limit);
   }
 }
