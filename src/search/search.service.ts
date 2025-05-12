@@ -32,22 +32,36 @@ export class SearchService {
   }
 
   /**
-   * Parsea los resultados JSON anidados en el campo description
+   * Parsea los resultados JSON anidados en el campo description si es necesario
    */
   private parseProductResults(results: any[]): any[] {
     return results.map(result => {
       try {
-        // Intentar parsear el campo description que contiene JSON
-        const descriptionObj = JSON.parse(result.description);
-        
-        return {
-          id: result.id,
-          description: descriptionObj.text || "Sin descripción",
-          codigo: descriptionObj.metadata?.codigo || null,
-          product_code: descriptionObj.id || null,
-          similarity: result.similarity,
-          exact_match: result.exact_match || false
-        };
+        // Verificar si description es un string que contiene JSON
+        if (typeof result.description === 'string' && 
+            (result.description.startsWith('{') || result.description.includes('"text"'))) {
+          // Intentar parsear el campo description que contiene JSON
+          const descriptionObj = JSON.parse(result.description);
+          
+          return {
+            id: result.id,
+            description: descriptionObj.text || "Sin descripción",
+            codigo: descriptionObj.metadata?.codigo || null,
+            product_code: descriptionObj.id || null,
+            similarity: result.similarity,
+            exact_match: result.exact_match || false
+          };
+        } else {
+          // Si description ya es un string simple, usarlo directamente
+          return {
+            id: result.id,
+            description: result.description,
+            codigo: result.codigo || null,
+            product_code: result.product_code || null,
+            similarity: result.similarity,
+            exact_match: result.exact_match || false
+          };
+        }
       } catch (e) {
         this.logger.warn(`Error parsing description for product ${result.id}: ${e.message}`);
         // Si hay error, intentar extraer información básica con expresiones regulares
@@ -58,21 +72,21 @@ export class SearchService {
           
           return {
             id: result.id,
-            description: textMatch ? textMatch[1] : "Sin descripción",
-            codigo: codigoMatch ? codigoMatch[1] : null,
-            product_code: idMatch ? idMatch[1] : null,
+            description: textMatch ? textMatch[1] : result.description || "Sin descripción",
+            codigo: codigoMatch ? codigoMatch[1] : result.codigo || null,
+            product_code: idMatch ? idMatch[1] : result.product_code || null,
             similarity: result.similarity,
             exact_match: result.exact_match || false
           };
         } catch {
-          // En caso de fallo total, devolver objeto genérico
+          // En caso de fallo total, devolver objeto original
           return {
-            id: result.id,
-            description: "Error al procesar descripción",
-            codigo: null,
-            product_code: null,
+            id: result.id, 
+            description: result.description || "Error al procesar descripción",
+            codigo: result.codigo || null,
+            product_code: result.product_code || null,
             similarity: result.similarity || 0,
-            exact_match: false
+            exact_match: result.exact_match || false
           };
         }
       }
@@ -80,34 +94,21 @@ export class SearchService {
   }
 
   /**
-   * Formatea los resultados en un formato limpio y legible
+   * Formatea los resultados en el formato solicitado
    */
   private formatResults(results: any[], query: string): string {
     // Encabezado
     let formattedOutput = `RESULTADOS PARA: "${query}"\n`;
-    formattedOutput += "=".repeat(50) + "\n\n";
+    formattedOutput += "==================================================\n";
     
     // Lista de resultados
     results.forEach((product, index) => {
       // Calcular porcentaje de similitud
       const similarityPercent = (product.similarity * 100).toFixed(1) + "%";
+      const codigo = product.codigo || product.product_code || "SIN CÓDIGO";
       
-      // Etiqueta según tipo de coincidencia
-      let label = "";
-      if (product.exact_match) {
-        label = "[COINCIDENCIA EXACTA]";
-      } else if (product.similarity > 0.85) {
-        label = "[ALTA COINCIDENCIA]";
-      } else if (product.similarity > 0.75) {
-        label = "[COINCIDENCIA MEDIA]";
-      } else if (product.similarity > 0.65) {
-        label = "[POSIBLE ALTERNATIVA]";
-      } else {
-        label = "[BAJA COINCIDENCIA]";
-      }
-      
-      // Formato de cada línea
-      formattedOutput += `${index + 1}) ${label} ${product.description} (${product.codigo || product.product_code}) [${similarityPercent}]\n\n`;
+      // Formato de cada línea: número) producto (código) [similitud]
+      formattedOutput += `${index + 1}) ${product.description} (${codigo}) [${similarityPercent}]\n`;
     });
     
     return formattedOutput;
@@ -133,7 +134,8 @@ export class SearchService {
         FROM 
           productos
         WHERE 
-          LOWER(text) = LOWER($1)
+          TRIM(LOWER(text)) = TRIM(LOWER($1))
+          OR similarity(LOWER(text), LOWER($1)) > 0.95
         LIMIT 1`,
         [normalizedQuery]
       );
@@ -197,11 +199,7 @@ export class SearchService {
         const formattedOutput = this.formatResults(parsedResults, query);
         
         return {
-          results: parsedResults,
           formatted_output: formattedOutput,
-          simple_list: parsedResults.map((p, i) => 
-            `${i + 1}) ${p.description} (${p.codigo || p.product_code}) [${(p.similarity * 100).toFixed(1)}%]`
-          ),
           query: normalizedQuery,
           total: parsedResults.length,
           exact_match_found: true
@@ -242,10 +240,15 @@ export class SearchService {
           metadata->>'codigo' AS codigo,
           metadata->>'id' AS product_code,
           CASE
-            WHEN LOWER(text) = LOWER($3) THEN 1.0  -- Coincidencia exacta (por si acaso)
+            WHEN TRIM(LOWER(text)) = TRIM(LOWER($3)) THEN 1.0  -- Coincidencia exacta
+            WHEN similarity(LOWER(text), LOWER($3)) > 0.95 THEN 0.99  -- Casi exacta
             ELSE POWER(1 - (embedding <=> $1::vector), 1.5)  -- Escalar similitud
           END AS similarity,
-          FALSE AS exact_match
+          CASE
+            WHEN TRIM(LOWER(text)) = TRIM(LOWER($3)) THEN TRUE
+            WHEN similarity(LOWER(text), LOWER($3)) > 0.95 THEN TRUE
+            ELSE FALSE
+          END AS exact_match
         FROM 
           productos
         ORDER BY 
@@ -263,14 +266,10 @@ export class SearchService {
       const formattedOutput = this.formatResults(parsedResults, query);
       
       return {
-        results: parsedResults,
         formatted_output: formattedOutput,
-        simple_list: parsedResults.map((p, i) => 
-          `${i + 1}) ${p.description} (${p.codigo || p.product_code}) [${(p.similarity * 100).toFixed(1)}%]`
-        ),
         query: normalizedQuery,
         total: parsedResults.length,
-        exact_match_found: false
+        exact_match_found: parsedResults.some(p => p.exact_match)
       };
     } catch (error) {
       this.logger.error(`Error in search: ${error.message}`, error.stack);
