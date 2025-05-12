@@ -7,160 +7,134 @@ export class SearchService {
   private pool: Pool;
 
   constructor(private configService: ConfigService) {
+    // Usar directamente DATABASE_URL en lugar de variables individuales
+    const databaseUrl = this.configService.get('DATABASE_URL');
     this.pool = new Pool({
-      host: this.configService.get('DB_HOST'),
-      port: this.configService.get('DB_PORT'),
-      user: this.configService.get('DB_USER'),
-      password: this.configService.get('DB_PASSWORD'),
-      database: this.configService.get('DB_NAME'),
+      connectionString: databaseUrl
     });
   }
 
   async searchProducts(query: string, limit: number = 5): Promise<any[]> {
     try {
-      // Usar el operador coseno (<=>) en lugar de la función similarity
-      // El operador coseno es más estable y maneja mejor los casos límite
+      // Búsqueda usando pg_trgm con el campo text
       const searchQuery = `
         SELECT 
-          p.id,
-          p.name,
-          p.description,
-          p.reference,
-          p.price,
-          word_similarity($1, p.name) AS similarity_score
+          id,
+          text,
+          metadata,
+          similarity(text, $1) AS similarity_score
         FROM 
-          products p
+          productos
         WHERE 
-          word_similarity($1, p.name) > 0.1
+          text % $1
         ORDER BY 
-          word_similarity($1, p.name) DESC
+          similarity(text, $1) DESC
         LIMIT $2;
       `;
 
       const result = await this.pool.query(searchQuery, [query, limit]);
       
-      // Formatear los resultados para la salida
+      // Formatear los resultados para la salida incluyendo código interno
       const formattedResults = result.rows.map(product => {
         const similarityPercentage = Math.round(product.similarity_score * 100);
+        
+        // Extraer el código interno del campo metadata o text según corresponda
+        let codigoInterno = '';
+        if (product.metadata && product.metadata.codigo) {
+          codigoInterno = product.metadata.codigo;
+        } else {
+          // Intenta extraer el código del texto (asumiendo un formato como "CÓDIGO: XXX" o similar)
+          const codigoMatch = product.text.match(/(?:TP|tp|Tp)([0-9]+)/i);
+          if (codigoMatch && codigoMatch[0]) {
+            codigoInterno = codigoMatch[0];
+          }
+        }
+
         return {
           id: product.id,
-          name: product.name,
-          description: product.description,
-          reference: product.reference,
-          price: product.price,
-          similarity: `${similarityPercentage}%`
+          articulo_buscado: query,
+          articulo_encontrado: product.text,
+          codigo_interno: codigoInterno,
+          distancia_coseno: `${similarityPercentage}%`,
+          metadata: product.metadata
         };
       });
 
       return formattedResults;
     } catch (error) {
-      // Mejorar el manejo de errores para facilitar la depuración
-      console.error('Error in searchProducts:', error.message);
+      console.error('Error en searchProducts:', error.message);
       throw new Error(`Error performing semantic search: ${error.message}`);
     }
   }
 
-  // Función para búsquedas usando vectores si estás usando pgvector
-  async searchProductsWithVectors(query: string, limit: number = 5): Promise<any[]> {
+  // Método que usa pgvector para búsqueda vectorial con distancia de coseno
+  async searchProductsWithVector(query: string, limit: number = 5): Promise<any[]> {
     try {
-      // Esta consulta usa el operador <=> (coseno) para comparación vectorial
-      // que es más estable que otras funciones de similitud
+      // Búsqueda vectorial con distancia de coseno (<=>)
       const searchQuery = `
         WITH query_embedding AS (
-          SELECT embedding_function($1) AS embedding
+          SELECT openai_embedding($1) AS embedding
         )
         SELECT 
-          p.id,
-          p.name,
-          p.description,
-          p.reference,
-          p.price,
-          1 - (p.embedding <=> q.embedding) AS similarity_score
+          id,
+          text,
+          metadata,
+          1 - (embedding <=> q.embedding) AS cosine_similarity,
+          embedding <=> q.embedding AS cosine_distance
         FROM 
-          products p, 
+          productos p, 
           query_embedding q
         ORDER BY 
-          p.embedding <=> q.embedding
+          cosine_distance ASC
         LIMIT $2;
       `;
 
       const result = await this.pool.query(searchQuery, [query, limit]);
       
-      // Formatear los resultados para la salida
-      // Asegurándonos de que similarity_score está en un rango válido
       const formattedResults = result.rows.map(product => {
-        // Asegurar que la puntuación está en el rango [0,1]
-        const score = Math.max(0, Math.min(1, product.similarity_score));
-        const similarityPercentage = Math.round(score * 100);
+        // Convertir la distancia coseno a un porcentaje de similitud (0-100%)
+        const similarityPercentage = Math.round(product.cosine_similarity * 100);
         
+        // Extraer el código interno del campo metadata o text
+        let codigoInterno = '';
+        if (product.metadata && product.metadata.codigo) {
+          codigoInterno = product.metadata.codigo;
+        } else {
+          // Intenta extraer el código del texto
+          const codigoMatch = product.text.match(/(?:TP|tp|Tp)([0-9]+)/i);
+          if (codigoMatch && codigoMatch[0]) {
+            codigoInterno = codigoMatch[0];
+          }
+        }
+
         return {
           id: product.id,
-          name: product.name,
-          description: product.description,
-          reference: product.reference,
-          price: product.price,
-          similarity: `${similarityPercentage}%`
+          articulo_buscado: query,
+          articulo_encontrado: product.text,
+          codigo_interno: codigoInterno,
+          distancia_coseno: `${similarityPercentage}%`,
+          distancia_coseno_raw: product.cosine_distance,
+          metadata: product.metadata
         };
       });
 
       return formattedResults;
     } catch (error) {
-      console.error('Error in searchProductsWithVectors:', error.message);
-      throw new Error(`Error performing semantic search: ${error.message}`);
+      console.error('Error en searchProductsWithVector:', error.message);
+      throw new Error(`Error performing vector search: ${error.message}`);
     }
   }
 
-  // Método alternativo que usa pg_trgm para búsqueda de texto
-  async searchProductsWithTrgm(query: string, limit: number = 5): Promise<any[]> {
-    try {
-      const searchQuery = `
-        SELECT 
-          p.id,
-          p.name,
-          p.description,
-          p.reference,
-          p.price,
-          similarity(p.name, $1) AS similarity_score
-        FROM 
-          products p
-        WHERE 
-          p.name % $1
-        ORDER BY 
-          similarity(p.name, $1) DESC
-        LIMIT $2;
-      `;
-
-      const result = await this.pool.query(searchQuery, [query, limit]);
-      
-      const formattedResults = result.rows.map(product => {
-        const similarityPercentage = Math.round(product.similarity_score * 100);
-        return {
-          id: product.id,
-          name: product.name,
-          description: product.description,
-          reference: product.reference,
-          price: product.price,
-          similarity: `${similarityPercentage}%`
-        };
-      });
-
-      return formattedResults;
-    } catch (error) {
-      console.error('Error in searchProductsWithTrgm:', error.message);
-      throw new Error(`Error performing semantic search: ${error.message}`);
-    }
-  }
-
-  // Método seguro para búsqueda que intenta diferentes estrategias
+  // Método seguro que intenta diferentes métodos de búsqueda
   async safeSearch(query: string, limit: number = 5): Promise<any[]> {
     try {
-      // Intenta primero con la búsqueda de trigram
-      return await this.searchProductsWithTrgm(query, limit);
+      // Primero intenta con búsqueda vectorial para mejores resultados semánticos
+      return await this.searchProductsWithVector(query, limit);
     } catch (error) {
-      console.log('Trigram search failed, trying alternative method:', error.message);
+      console.log('Vector search failed, trying trigram search:', error.message);
       
       try {
-        // Si falla, intenta con la búsqueda básica
+        // Si falla, intenta con búsqueda de trigram
         return await this.searchProducts(query, limit);
       } catch (secondError) {
         console.error('All search methods failed:', secondError.message);
