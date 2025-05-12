@@ -3,6 +3,31 @@ import { Pool } from 'pg';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 
+// Interfaces para tipado de la respuesta de OpenAI
+interface OpenAIMessage {
+  role: string;
+  content: string;
+}
+
+interface OpenAIChoice {
+  message: OpenAIMessage;
+  index: number;
+  finish_reason: string;
+}
+
+interface OpenAIResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: OpenAIChoice[];
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
 @Injectable()
 export class SearchService {
   private pool: Pool;
@@ -154,7 +179,7 @@ this.openaiApiKey = apiKey;
       });
       
       // Configurar la solicitud a la API de OpenAI
-      const openaiResponse = await axios.post(
+      const openaiResponse = await axios.post<OpenAIResponse>(
         'https://api.openai.com/v1/chat/completions',
         {
           model: 'gpt-4.1-mini',
