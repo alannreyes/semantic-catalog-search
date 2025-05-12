@@ -14,6 +14,34 @@ export class SearchService {
     });
   }
 
+  // Extraer código interno de metadata o texto
+  private extractCodigoInterno(product: any): string {
+    // Primero intentar extraer de metadata.codigo si existe
+    if (product.metadata && product.metadata.codigo) {
+      return product.metadata.codigo;
+    }
+    
+    // Si no está en metadata, intentar extraerlo del texto
+    if (product.text) {
+      // Buscar patrones de código como TP998638 o 04010967
+      const tpMatch = product.text.match(/(?:TP|tp|Tp)([0-9]+)/i);
+      const numericMatch = product.text.match(/(?<!\w)0\d{6,7}(?!\w)/); // Coincide con números que empiezan con 0 y tienen 7-8 dígitos
+      
+      if (tpMatch && tpMatch[0]) {
+        return tpMatch[0];
+      } else if (numericMatch && numericMatch[0]) {
+        return numericMatch[0];
+      }
+    }
+    
+    // Si no se encuentra en texto, verificar si hay un "id" en metadata que podría ser el código
+    if (product.metadata && product.metadata.id) {
+      return product.metadata.id;
+    }
+    
+    return '[empty]';  // Valor por defecto si no se encuentra el código
+  }
+
   async searchProducts(query: string, limit: number = 5): Promise<any[]> {
     try {
       // Búsqueda usando pg_trgm con el campo text
@@ -38,17 +66,8 @@ export class SearchService {
       const formattedResults = result.rows.map(product => {
         const similarityPercentage = Math.round(product.similarity_score * 100);
         
-        // Extraer el código interno del campo metadata o text según corresponda
-        let codigoInterno = '';
-        if (product.metadata && product.metadata.codigo) {
-          codigoInterno = product.metadata.codigo;
-        } else {
-          // Intenta extraer el código del texto (asumiendo un formato como "CÓDIGO: XXX" o similar)
-          const codigoMatch = product.text.match(/(?:TP|tp|Tp)([0-9]+)/i);
-          if (codigoMatch && codigoMatch[0]) {
-            codigoInterno = codigoMatch[0];
-          }
-        }
+        // Extraer el código interno
+        const codigoInterno = this.extractCodigoInterno(product);
 
         return {
           id: product.id,
@@ -95,17 +114,8 @@ export class SearchService {
         // Convertir la distancia coseno a un porcentaje de similitud (0-100%)
         const similarityPercentage = Math.round(product.cosine_similarity * 100);
         
-        // Extraer el código interno del campo metadata o text
-        let codigoInterno = '';
-        if (product.metadata && product.metadata.codigo) {
-          codigoInterno = product.metadata.codigo;
-        } else {
-          // Intenta extraer el código del texto
-          const codigoMatch = product.text.match(/(?:TP|tp|Tp)([0-9]+)/i);
-          if (codigoMatch && codigoMatch[0]) {
-            codigoInterno = codigoMatch[0];
-          }
-        }
+        // Extraer el código interno
+        const codigoInterno = this.extractCodigoInterno(product);
 
         return {
           id: product.id,
@@ -113,7 +123,6 @@ export class SearchService {
           articulo_encontrado: product.text,
           codigo_interno: codigoInterno,
           distancia_coseno: `${similarityPercentage}%`,
-          distancia_coseno_raw: product.cosine_distance,
           metadata: product.metadata
         };
       });
