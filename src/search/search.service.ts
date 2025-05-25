@@ -13,29 +13,30 @@ export class SearchService {
     this.pool = new Pool({
       connectionString: this.configService.get<string>('DATABASE_URL'),
     });
-    
+
     this.openai = new OpenAI({
       apiKey: this.configService.get<string>('OPENAI_API_KEY'),
     });
-    
+
     this.logger.log('SearchService initialized');
   }
 
   async searchProducts(query: string, limit: number = 5) {
     try {
       this.logger.log(`Processing search query: "${query}" with limit: ${limit}`);
-      
-      // 1. Obtener embedding desde OpenAI
+
+      // ETAPA 1: Normalizar el query usando búsqueda web
+      const normalizedQuery = await this.normalizeQueryWithWebSearch(query);
+
+      // ETAPA 2: Obtener embedding desde OpenAI usando la versión normalizada
       const embeddingResponse = await this.openai.embeddings.create({
         model: "text-embedding-3-large",
-        input: query,
+        input: normalizedQuery,
       });
-      
-      // Guardar el embedding y hacer log de su tipo
+
       let embedding = embeddingResponse.data[0].embedding;
       this.logger.log(`Embedding obtenido: tipo=${typeof embedding}, es array=${Array.isArray(embedding)}`);
 
-      // Verificar y asegurar que el embedding sea un array
       if (!Array.isArray(embedding)) {
         this.logger.warn('El embedding no es un array, intentando convertir...');
         try {
@@ -49,12 +50,9 @@ export class SearchService {
           throw new Error('Formato de embedding inválido');
         }
       }
-      this.logger.log(`Embedding procesado (${embedding.length} dimensiones)`);
 
-      // Formatear para pgvector - asegurar formato correcto
       const vectorString = `[${embedding.join(',')}]`;
-      
-      // 2. Buscar en pgvector por similitud
+
       const result = await this.pool.query(
         `SELECT 
           id::TEXT,
@@ -69,52 +67,47 @@ export class SearchService {
         LIMIT $2`,
         [vectorString, limit]
       );
-      
+
       this.logger.log(`Found ${result.rows.length} products with similar embeddings`);
-      
-      // 3. NUEVO BLOQUE: Juez final con GPT-4o-mini
+
       if (result.rows.length > 0) {
-        const bestProduct = await this.selectBestProductWithGPT(query, result.rows);
+        const bestProduct = await this.selectBestProductWithGPT(query, result.rows, normalizedQuery);
         return bestProduct;
       }
-      
+
       return {
-        codigo: null,  // CAMBIO: usar codigo en lugar de id
+        codigo: null,
         text: null,
-        similitud: "DISTINTO" // Totalmente distinto si no hay resultados
+        similitud: "DISTINTO",
+        normalizado: normalizedQuery,
       };
-      
+
     } catch (error) {
       this.logger.error(`Error in search: ${error.message}`, error.stack);
       throw new Error(`Error performing semantic search: ${error.message}`);
     }
   }
 
-  private async selectBestProductWithGPT(originalQuery: string, products: any[]) {
+  private async selectBestProductWithGPT(originalQuery: string, products: any[], normalizedQuery: string) {
     try {
       this.logger.log(`Selecting best product with GPT for query: "${originalQuery}"`);
-      
-      // Formatear productos para el prompt - MEJORADO para extraer codigo consistentemente
+
       const productsForGPT = products.map((product, index) => {
-        // Extraer el texto limpio del JSON en description
         let cleanText = '';
         let productCode = '';
-        
+
         try {
           const parsed = JSON.parse(product.description);
           cleanText = parsed.text || '';
-          // CAMBIO: priorizar siempre el codigo de metadata
           productCode = parsed.metadata?.codigo || product.codigo || parsed.id || '';
         } catch {
-          // Si no es JSON, usar el texto directo
           cleanText = product.description || '';
-          // CAMBIO: usar codigo de la query SQL
           productCode = product.codigo || product.id || '';
         }
-        
+
         return {
           index: index + 1,
-          codigo: productCode,  // CAMBIO: usar codigo en lugar de id
+          codigo: productCode,
           text: cleanText,
           vectorSimilarity: product.similarity
         };
@@ -164,20 +157,17 @@ INSTRUCCIONES:
 
       const gptContent = gptResponse.choices[0].message.content?.trim();
       this.logger.log(`GPT response: ${gptContent}`);
-      
-      // Verificar que tenemos contenido válido
+
       if (!gptContent) {
         this.logger.error('GPT response content is null or empty');
         throw new Error('GPT no devolvió contenido válido');
       }
-      
-      // Parsear respuesta de GPT
+
       let gptDecision;
       try {
         gptDecision = JSON.parse(gptContent);
       } catch (error) {
         this.logger.error(`Error parsing GPT response: ${error.message}`);
-        // Fallback: seleccionar el primero
         gptDecision = {
           selectedIndex: 1,
           similitud: "ALTERNATIVO",
@@ -185,48 +175,73 @@ INSTRUCCIONES:
         };
       }
 
-      // Obtener el producto seleccionado
       const selectedProduct = productsForGPT[gptDecision.selectedIndex - 1];
-      
+
       if (!selectedProduct) {
         this.logger.error(`Invalid selected index: ${gptDecision.selectedIndex}`);
         throw new Error('Índice de producto seleccionado inválido');
       }
 
-      const finalResult = {
-        codigo: selectedProduct.codigo,  // CAMBIO: usar codigo en lugar de id
+      return {
+        codigo: selectedProduct.codigo,
         text: selectedProduct.text,
-        similitud: gptDecision.similitud
+        similitud: gptDecision.similitud,
+        normalizado: normalizedQuery
       };
-
-      this.logger.log(`Final selected product: ${JSON.stringify(finalResult)}`);
-      
-      return finalResult;
 
     } catch (error) {
       this.logger.error(`Error in GPT selection: ${error.message}`, error.stack);
-      
-      // Fallback: devolver el primer producto con similitud parcial
+
       const firstProduct = products[0];
       let cleanText = '';
       let productCode = '';
-      
+
       try {
         const parsed = JSON.parse(firstProduct.description);
         cleanText = parsed.text || '';
-        // CAMBIO: priorizar codigo de metadata
         productCode = parsed.metadata?.codigo || firstProduct.codigo || parsed.id || '';
       } catch {
         cleanText = firstProduct.description || '';
-        // CAMBIO: usar codigo de la query SQL
         productCode = firstProduct.codigo || firstProduct.id || '';
       }
-      
+
       return {
-        codigo: productCode,  // CAMBIO: usar codigo en lugar de id
+        codigo: productCode,
         text: cleanText,
-        similitud: "ALTERNATIVO" // Sustituto parcial por error
+        similitud: "ALTERNATIVO",
+        normalizado: normalizedQuery
       };
+    }
+  }
+
+  private async normalizeQueryWithWebSearch(query: string): Promise<string> {
+    try {
+      this.logger.log(`Normalizando query usando búsqueda web: "${query}"`);
+
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4.1",
+        tools: [{ type: "web_search_preview" }],
+        messages: [
+          {
+            role: "system",
+            content: "Eres un experto en productos. Devuelve una breve descripción técnica del producto buscado, incluyendo marca, modelo y especificaciones clave si están disponibles."
+          },
+          {
+            role: "user",
+            content: `¿Qué es: "${query}"? Devuelve una sola línea clara y técnica.`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 100
+      });
+
+      const normalized = response.choices[0]?.message?.content?.trim();
+      this.logger.log(`Query normalizada: "${normalized}"`);
+      return normalized || query;
+
+    } catch (error) {
+      this.logger.error(`Error en normalización con búsqueda web: ${error.message}`);
+      return query;
     }
   }
 }
