@@ -166,8 +166,14 @@ INSTRUCCIONES:
         max_tokens: 300
       });
 
-      const gptContent = gptResponse.choices[0].message.content.trim();
+      const gptContent = gptResponse.choices[0].message.content?.trim();
       this.logger.log(`GPT response: ${gptContent}`);
+      
+      // Verificar que tenemos contenido válido
+      if (!gptContent) {
+        this.logger.error('GPT response content is null or empty');
+        throw new Error('GPT no devolvió contenido válido');
+      }
       
       // Parsear respuesta de GPT
       let gptDecision;
