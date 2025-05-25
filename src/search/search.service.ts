@@ -23,74 +23,95 @@ export class SearchService {
 
   async searchProducts(query: string, limit: number = 5) {
     try {
-      this.logger.log(`Processing search query: "${query}" with limit: ${limit}`);
+      this.logger.log(`Buscando productos con query original: "${query}"`);
 
-      // ETAPA 1: Normalizar el query usando búsqueda web
+      // Primera búsqueda sin normalización
+      const initialResult = await this.performSemanticSearch(query, limit);
+
+      // Si la similitud es alta, devolver directamente
+      if (["EXACTO", "EQUIVALENTE"].includes(initialResult.similitud)) {
+        this.logger.log(`Similitud alta detectada (${initialResult.similitud}), no se requiere búsqueda web`);
+        return { ...initialResult, normalizado: null };
+      }
+
+      // Caso contrario: activar normalización y repetir proceso
+      this.logger.log(`Similitud baja (${initialResult.similitud}), activando búsqueda web para normalización`);
+
       const normalizedQuery = await this.normalizeQueryWithWebSearch(query);
-
-      // ETAPA 2: Obtener embedding desde OpenAI usando la versión normalizada
-      const embeddingResponse = await this.openai.embeddings.create({
-        model: "text-embedding-3-large",
-        input: normalizedQuery,
-      });
-
-      let embedding = embeddingResponse.data[0].embedding;
-      this.logger.log(`Embedding obtenido: tipo=${typeof embedding}, es array=${Array.isArray(embedding)}`);
-
-      if (!Array.isArray(embedding)) {
-        this.logger.warn('El embedding no es un array, intentando convertir...');
-        try {
-          if (typeof embedding === 'object') {
-            embedding = Object.values(embedding);
-          } else if (typeof embedding === 'string') {
-            embedding = JSON.parse(embedding);
-          }
-        } catch (error) {
-          this.logger.error(`Error al convertir embedding: ${error.message}`);
-          throw new Error('Formato de embedding inválido');
-        }
-      }
-
-      const vectorString = `[${embedding.join(',')}]`;
-
-      const result = await this.pool.query(
-        `SELECT 
-          id::TEXT,
-          text AS description,
-          metadata->>'codigo' AS codigo,
-          metadata->>'id' AS product_code,
-          1 - (embedding <=> $1::vector) AS similarity
-        FROM 
-          productos
-        ORDER BY 
-          embedding <=> $1::vector
-        LIMIT $2`,
-        [vectorString, limit]
-      );
-
-      this.logger.log(`Found ${result.rows.length} products with similar embeddings`);
-
-      if (result.rows.length > 0) {
-        const bestProduct = await this.selectBestProductWithGPT(query, result.rows, normalizedQuery);
-        return bestProduct;
-      }
+      const resultAfterNormalization = await this.performSemanticSearch(normalizedQuery, limit, query);
 
       return {
-        codigo: null,
-        text: null,
-        similitud: "DISTINTO",
-        normalizado: normalizedQuery,
+        ...resultAfterNormalization,
+        normalizado: normalizedQuery
       };
 
     } catch (error) {
-      this.logger.error(`Error in search: ${error.message}`, error.stack);
-      throw new Error(`Error performing semantic search: ${error.message}`);
+      this.logger.error(`Error en búsqueda general: ${error.message}`, error.stack);
+      throw new Error(`Error en búsqueda semántica: ${error.message}`);
     }
+  }
+
+  private async performSemanticSearch(inputText: string, limit: number = 5, originalQueryOverride?: string) {
+    const embeddingResponse = await this.openai.embeddings.create({
+      model: "text-embedding-3-large",
+      input: inputText,
+    });
+
+    let embedding = embeddingResponse.data[0].embedding;
+
+    if (!Array.isArray(embedding)) {
+      this.logger.warn('El embedding no es un array, intentando convertir...');
+      try {
+        if (typeof embedding === 'object') {
+          embedding = Object.values(embedding);
+        } else if (typeof embedding === 'string') {
+          embedding = JSON.parse(embedding);
+        }
+      } catch (error) {
+        this.logger.error(`Error al convertir embedding: ${error.message}`);
+        throw new Error('Formato de embedding inválido');
+      }
+    }
+
+    const vectorString = `[${embedding.join(',')}]`;
+
+    const result = await this.pool.query(
+      `SELECT 
+        id::TEXT,
+        text AS description,
+        metadata->>'codigo' AS codigo,
+        metadata->>'id' AS product_code,
+        1 - (embedding <=> $1::vector) AS similarity
+      FROM 
+        productos
+      ORDER BY 
+        embedding <=> $1::vector
+      LIMIT $2`,
+      [vectorString, limit]
+    );
+
+    this.logger.log(`Productos similares encontrados: ${result.rows.length}`);
+
+    if (result.rows.length === 0) {
+      return {
+        codigo: null,
+        text: null,
+        similitud: "DISTINTO"
+      };
+    }
+
+    const best = await this.selectBestProductWithGPT(
+      originalQueryOverride || inputText,
+      result.rows,
+      inputText
+    );
+
+    return best;
   }
 
   private async selectBestProductWithGPT(originalQuery: string, products: any[], normalizedQuery: string) {
     try {
-      this.logger.log(`Selecting best product with GPT for query: "${originalQuery}"`);
+      this.logger.log(`Seleccionando mejor producto con GPT para: "${originalQuery}"`);
 
       const productsForGPT = products.map((product, index) => {
         let cleanText = '';
@@ -178,19 +199,18 @@ INSTRUCCIONES:
       const selectedProduct = productsForGPT[gptDecision.selectedIndex - 1];
 
       if (!selectedProduct) {
-        this.logger.error(`Invalid selected index: ${gptDecision.selectedIndex}`);
+        this.logger.error(`Índice inválido: ${gptDecision.selectedIndex}`);
         throw new Error('Índice de producto seleccionado inválido');
       }
 
       return {
         codigo: selectedProduct.codigo,
         text: selectedProduct.text,
-        similitud: gptDecision.similitud,
-        normalizado: normalizedQuery
+        similitud: gptDecision.similitud
       };
 
     } catch (error) {
-      this.logger.error(`Error in GPT selection: ${error.message}`, error.stack);
+      this.logger.error(`Error en selección GPT: ${error.message}`, error.stack);
 
       const firstProduct = products[0];
       let cleanText = '';
@@ -208,8 +228,7 @@ INSTRUCCIONES:
       return {
         codigo: productCode,
         text: cleanText,
-        similitud: "ALTERNATIVO",
-        normalizado: normalizedQuery
+        similitud: "ALTERNATIVO"
       };
     }
   }
@@ -221,7 +240,7 @@ INSTRUCCIONES:
       const response = await this.openai.responses.create({
         model: "gpt-4o",
         tools: [{ type: "web_search_preview" }],
-        input: `Tu tarea es buscar en internet el producto mencionado y devolver únicamente el nombre técnico más preciso basado en la información encontrada. No expliques nada. Muy importante Incluye marca, tipo, color, y presentación si están disponibles. Usa siempre minúsculas y sin comillas. Asegurate que sea lo mismo que se consulta.
+        input: `Tu tarea es buscar en internet el producto mencionado y devolver únicamente el nombre técnico más preciso basado en la información encontrada. No expliques nada. Incluye marca, tipo, color, y presentación si están disponibles. Usa siempre minúsculas y sin comillas.
 
 Ejemplos:
 "pintura blanca 5 gal sherwin" => pintura blanca sherwin 5 galones
