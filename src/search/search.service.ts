@@ -25,18 +25,14 @@ export class SearchService {
     try {
       this.logger.log(`Buscando productos con query original: "${query}"`);
 
-      // Primera búsqueda sin normalización
       const initialResult = await this.performSemanticSearch(query, limit);
 
-      // Si la similitud es alta, devolver directamente
       if (["EXACTO", "EQUIVALENTE"].includes(initialResult.similitud)) {
         this.logger.log(`Similitud alta detectada (${initialResult.similitud}), no se requiere búsqueda web`);
         return { ...initialResult, normalizado: null };
       }
 
-      // Caso contrario: activar normalización y repetir proceso
       this.logger.log(`Similitud baja (${initialResult.similitud}), activando búsqueda web para normalización`);
-
       const normalizedQuery = await this.normalizeQueryWithWebSearch(query);
       const resultAfterNormalization = await this.performSemanticSearch(normalizedQuery, limit, query);
 
@@ -79,8 +75,6 @@ export class SearchService {
       `SELECT 
         id::TEXT,
         text AS description,
-        metadata->>'codigo' AS codigo,
-        metadata->>'id' AS product_code,
         1 - (embedding <=> $1::vector) AS similarity
       FROM 
         productos
@@ -120,10 +114,20 @@ export class SearchService {
         try {
           const parsed = JSON.parse(product.description);
           cleanText = parsed.text || '';
-          productCode = parsed.metadata?.codigo || product.codigo || parsed.id || '';
+
+          // Extraer código del JSON embebido
+          if (parsed.metadata?.codigo && parsed.metadata.codigo.length < 20) {
+            productCode = parsed.metadata.codigo;
+          } else if (parsed.id && parsed.id.length < 20) {
+            productCode = parsed.id;
+          }
         } catch {
           cleanText = product.description || '';
-          productCode = product.codigo || product.id || '';
+        }
+
+        // Fallback si no se pudo extraer bien el código
+        if (!productCode && product.id && product.id.length < 20) {
+          productCode = product.id;
         }
 
         return {
@@ -219,10 +223,10 @@ INSTRUCCIONES:
       try {
         const parsed = JSON.parse(firstProduct.description);
         cleanText = parsed.text || '';
-        productCode = parsed.metadata?.codigo || firstProduct.codigo || parsed.id || '';
+        productCode = parsed.metadata?.codigo || parsed.id || '';
       } catch {
         cleanText = firstProduct.description || '';
-        productCode = firstProduct.codigo || firstProduct.id || '';
+        productCode = firstProduct.id || '';
       }
 
       return {
