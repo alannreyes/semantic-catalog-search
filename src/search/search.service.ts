@@ -79,7 +79,7 @@ export class SearchService {
       }
       
       return {
-        id: null,
+        codigo: null,  // CAMBIO: usar codigo en lugar de id
         text: null,
         similitud: 10 // Totalmente distinto si no hay resultados
       };
@@ -94,25 +94,27 @@ export class SearchService {
     try {
       this.logger.log(`Selecting best product with GPT for query: "${originalQuery}"`);
       
-      // Formatear productos para el prompt
+      // Formatear productos para el prompt - MEJORADO para extraer codigo consistentemente
       const productsForGPT = products.map((product, index) => {
         // Extraer el texto limpio del JSON en description
         let cleanText = '';
-        let productId = '';
+        let productCode = '';
         
         try {
           const parsed = JSON.parse(product.description);
           cleanText = parsed.text || '';
-          productId = parsed.id || product.codigo || '';
+          // CAMBIO: priorizar siempre el codigo de metadata
+          productCode = parsed.metadata?.codigo || product.codigo || parsed.id || '';
         } catch {
           // Si no es JSON, usar el texto directo
           cleanText = product.description || '';
-          productId = product.codigo || product.id || '';
+          // CAMBIO: usar codigo de la query SQL
+          productCode = product.codigo || product.id || '';
         }
         
         return {
           index: index + 1,
-          id: productId,
+          codigo: productCode,  // CAMBIO: usar codigo en lugar de id
           text: cleanText,
           vectorSimilarity: product.similarity
         };
@@ -123,7 +125,7 @@ export class SearchService {
 QUERY ORIGINAL: "${originalQuery}"
 
 PRODUCTOS CANDIDATOS:
-${productsForGPT.map(p => `${p.index}. ID: ${p.id} | TEXTO: "${p.text}" | Similitud vectorial: ${p.vectorSimilarity}`).join('\n')}
+${productsForGPT.map(p => `${p.index}. CODIGO: ${p.codigo} | TEXTO: "${p.text}" | Similitud vectorial: ${p.vectorSimilarity}`).join('\n')}
 
 ESCALA DE SIMILITUD:
 0 = Idéntico
@@ -198,7 +200,7 @@ INSTRUCCIONES:
       }
 
       const finalResult = {
-        id: selectedProduct.id,
+        codigo: selectedProduct.codigo,  // CAMBIO: usar codigo en lugar de id
         text: selectedProduct.text,
         similitud: gptDecision.similitud
       };
@@ -213,19 +215,21 @@ INSTRUCCIONES:
       // Fallback: devolver el primer producto con similitud parcial
       const firstProduct = products[0];
       let cleanText = '';
-      let productId = '';
+      let productCode = '';
       
       try {
         const parsed = JSON.parse(firstProduct.description);
         cleanText = parsed.text || '';
-        productId = parsed.id || firstProduct.codigo || '';
+        // CAMBIO: priorizar codigo de metadata
+        productCode = parsed.metadata?.codigo || firstProduct.codigo || parsed.id || '';
       } catch {
         cleanText = firstProduct.description || '';
-        productId = firstProduct.codigo || firstProduct.id || '';
+        // CAMBIO: usar codigo de la query SQL
+        productCode = firstProduct.codigo || firstProduct.id || '';
       }
       
       return {
-        id: productId,
+        codigo: productCode,  // CAMBIO: usar codigo en lugar de id
         text: cleanText,
         similitud: 5 // Sustituto parcial por error
       };
