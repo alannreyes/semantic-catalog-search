@@ -221,7 +221,7 @@ INSTRUCCIONES:
       const response = await this.openai.responses.create({
         model: "gpt-4o",
         tools: [{ type: "web_search_preview" }],
-        input: `Tu tarea es buscar en internet el producto mencionado y devolver únicamente el nombre técnico más preciso basado en la información encontrada. No expliques nada. Incluye marca, tipo, color, y presentación si están disponibles. Usa siempre minúsculas y sin comillas.
+        input: `Tu tarea es buscar en internet el producto mencionado y devolver únicamente el nombre técnico más preciso basado en la información encontrada. No expliques nada. Muy importante Incluye marca, tipo, color, y presentación si están disponibles. Usa siempre minúsculas y sin comillas. Asegurate que sea lo mismo que se consulta.
 
 Ejemplos:
 "pintura blanca 5 gal sherwin" => pintura blanca sherwin 5 galones
