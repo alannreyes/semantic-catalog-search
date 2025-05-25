@@ -220,7 +220,7 @@ INSTRUCCIONES:
 
       const response = await this.openai.chat.completions.create({
         model: "gpt-4.1",
-        tools: [{ type: "web_search_preview" }],
+        tools: [{ type: "web_search_preview" } as any],  // <- FIX DE TIPADO
         messages: [
           {
             role: "system",
