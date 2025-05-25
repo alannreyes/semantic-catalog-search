@@ -81,7 +81,7 @@ export class SearchService {
       return {
         codigo: null,  // CAMBIO: usar codigo en lugar de id
         text: null,
-        similitud: 10 // Totalmente distinto si no hay resultados
+        similitud: "DISTINTO" // Totalmente distinto si no hay resultados
       };
       
     } catch (error) {
@@ -128,27 +128,21 @@ PRODUCTOS CANDIDATOS:
 ${productsForGPT.map(p => `${p.index}. CODIGO: ${p.codigo} | TEXTO: "${p.text}" | Similitud vectorial: ${p.vectorSimilarity}`).join('\n')}
 
 ESCALA DE SIMILITUD:
-0 = Idéntico
-1 = Sustituto directo  
-2 = Altamente similar
-3 = Muy similar
-4 = Similar funcional
-5 = Sustituto parcial
-6 = Relacionado lejano
-7 = Poco relacionado
-8 = Diferente categoría
-9 = Distinto propósito
-10 = Totalmente distinto
+- EXACTO: Es exactamente el producto buscado
+- EQUIVALENTE: Cumple la misma función, mismas especificaciones
+- COMPATIBLE: Funciona para el mismo propósito, especificaciones similares
+- ALTERNATIVO: Puede servir pero con diferencias notables
+- DISTINTO: No es lo que se busca
 
 INSTRUCCIONES:
 1. Analiza cada producto considerando marca, modelo, tamaño, características técnicas
 2. Selecciona SOLO UNO que sea el mejor match para el query original
-3. Asigna un puntaje de similitud según la escala
+3. Asigna un nivel de similitud según la escala
 4. Responde SOLO con un JSON válido en este formato exacto:
 
 {
   "selectedIndex": [número del producto seleccionado 1-5],
-  "similitud": [puntaje 0-10],
+  "similitud": "[EXACTO|EQUIVALENTE|COMPATIBLE|ALTERNATIVO|DISTINTO]",
   "razon": "[explicación breve de por qué es el mejor match]"
 }`;
 
@@ -186,7 +180,7 @@ INSTRUCCIONES:
         // Fallback: seleccionar el primero
         gptDecision = {
           selectedIndex: 1,
-          similitud: 5,
+          similitud: "ALTERNATIVO",
           razon: "Error en análisis GPT, seleccionado por similitud vectorial"
         };
       }
@@ -231,7 +225,7 @@ INSTRUCCIONES:
       return {
         codigo: productCode,  // CAMBIO: usar codigo en lugar de id
         text: cleanText,
-        similitud: 5 // Sustituto parcial por error
+        similitud: "ALTERNATIVO" // Sustituto parcial por error
       };
     }
   }
