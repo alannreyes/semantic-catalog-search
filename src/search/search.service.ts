@@ -216,15 +216,22 @@ INSTRUCCIONES:
 
   private async normalizeQueryWithWebSearch(query: string): Promise<string> {
     try {
-      this.logger.log(`Normalizando query usando búsqueda web: "${query}"`);
+      this.logger.log(`Normalizando query con búsqueda web real: "${query}"`);
 
       const response = await this.openai.responses.create({
         model: "gpt-4o",
         tools: [{ type: "web_search_preview" }],
-        input: `¿Qué es: "${query}"? Devuelve una sola línea clara y técnica.`,
+        input: `Tu tarea es buscar en internet el producto mencionado y devolver únicamente el nombre técnico más preciso basado en la información encontrada. No expliques nada. Incluye marca, tipo, color, y presentación si están disponibles. Usa siempre minúsculas y sin comillas.
+
+Ejemplos:
+"pintura blanca 5 gal sherwin" => pintura blanca sherwin 5 galones
+"guantes de corte nivel 5 m" => guantes corte nivel 5 talla m
+"silicona teka transparente 280ml" => silicona neutra transparente teka 280ml
+
+Producto a normalizar: ${query}`,
       });
 
-      const normalized = response.output_text?.trim();
+      const normalized = response.output_text?.trim().replace(/^["']|["']$/g, '');
       this.logger.log(`Query normalizada: "${normalized}"`);
       return normalized || query;
     } catch (error) {
