@@ -218,27 +218,15 @@ INSTRUCCIONES:
     try {
       this.logger.log(`Normalizando query usando búsqueda web: "${query}"`);
 
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-4.1",
-        tools: [{ type: "web_search_preview" } as any],  // <- FIX DE TIPADO
-        messages: [
-          {
-            role: "system",
-            content: "Eres un experto en productos. Devuelve una breve descripción técnica del producto buscado, incluyendo marca, modelo y especificaciones clave si están disponibles."
-          },
-          {
-            role: "user",
-            content: `¿Qué es: "${query}"? Devuelve una sola línea clara y técnica.`
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 100
+      const response = await this.openai.responses.create({
+        model: "gpt-4o",
+        tools: [{ type: "web_search_preview" }],
+        input: `¿Qué es: "${query}"? Devuelve una sola línea clara y técnica.`,
       });
 
-      const normalized = response.choices[0]?.message?.content?.trim();
+      const normalized = response.output_text?.trim();
       this.logger.log(`Query normalizada: "${normalized}"`);
       return normalized || query;
-
     } catch (error) {
       this.logger.error(`Error en normalización con búsqueda web: ${error.message}`);
       return query;
