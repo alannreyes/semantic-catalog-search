@@ -1,9 +1,9 @@
-FROM node:18-alpine
+# Usa Node 20 en lugar de 18 para compatibilidad con NestJS 11 y dependencias modernas
+FROM node:20-alpine
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install axios --save
 RUN npm install
 
 COPY . .
