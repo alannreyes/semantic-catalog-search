@@ -9,6 +9,10 @@ export class SearchService {
   private pool: Pool;
   private openai: OpenAI;
 
+  private readonly probes: number;
+  private readonly embeddingModel: string;
+  private readonly productTable: string;
+
   constructor(private configService: ConfigService) {
     this.pool = new Pool({
       connectionString: this.configService.get<string>('DATABASE_URL'),
@@ -18,7 +22,11 @@ export class SearchService {
       apiKey: this.configService.get<string>('OPENAI_API_KEY'),
     });
 
-    this.logger.log('SearchService initialized');
+    this.probes = parseInt(this.configService.get<string>('PGVECTOR_PROBES') || '1', 10);
+    this.embeddingModel = this.configService.get<string>('OPENAI_MODEL') || 'text-embedding-3-small';
+    this.productTable = this.configService.get<string>('PRODUCT_TABLE') || 'productos_small';
+
+    this.logger.log(`SearchService initialized with model=${this.embeddingModel}, probes=${this.probes}, table=${this.productTable}`);
   }
 
   async searchProducts(query: string, limit: number = 5) {
@@ -49,7 +57,7 @@ export class SearchService {
 
   private async performSemanticSearch(inputText: string, limit: number = 5, originalQueryOverride?: string) {
     const embeddingResponse = await this.openai.embeddings.create({
-      model: "text-embedding-3-large",
+      model: this.embeddingModel,
       input: inputText,
     });
 
@@ -71,16 +79,18 @@ export class SearchService {
 
     const vectorString = `[${embedding.join(',')}]`;
 
+    await this.pool.query(`SET ivfflat.probes = ${this.probes}`);
+
     const result = await this.pool.query(
       `SELECT 
-        id::TEXT,
-        text AS description,
-        1 - (embedding <=> $1::vector) AS similarity
-      FROM 
-        productos
-      ORDER BY 
-        embedding <=> $1::vector
-      LIMIT $2`,
+         id::TEXT,
+         text AS description,
+         1 - (embedding <=> $1::vector) AS similarity
+       FROM 
+         ${this.productTable}
+       ORDER BY 
+         embedding <=> $1::vector
+       LIMIT $2`,
       [vectorString, limit]
     );
 
@@ -114,8 +124,6 @@ export class SearchService {
         try {
           const parsed = JSON.parse(product.description);
           cleanText = parsed.text || '';
-
-          // Extraer código del JSON embebido
           if (parsed.metadata?.codigo && parsed.metadata.codigo.length < 20) {
             productCode = parsed.metadata.codigo;
           } else if (parsed.id && parsed.id.length < 20) {
@@ -125,7 +133,6 @@ export class SearchService {
           cleanText = product.description || '';
         }
 
-        // Fallback si no se pudo extraer bien el código
         if (!productCode && product.id && product.id.length < 20) {
           productCode = product.id;
         }
