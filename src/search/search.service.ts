@@ -14,12 +14,20 @@ export class SearchService {
   private readonly productTable: string;
 
   constructor(private configService: ConfigService) {
+    // Configuración optimizada del pool de conexiones
     this.pool = new Pool({
       connectionString: this.configService.get<string>('DATABASE_URL'),
+      max: 20, // Máximo 20 conexiones
+      idleTimeoutMillis: 30000, // 30 segundos
+      connectionTimeoutMillis: 10000, // 10 segundos timeout para conexión
+      statement_timeout: 30000, // 30 segundos timeout para queries
+      query_timeout: 30000, // 30 segundos timeout para queries
     });
 
     this.openai = new OpenAI({
       apiKey: this.configService.get<string>('OPENAI_API_KEY'),
+      timeout: 45000, // 45 segundos timeout para OpenAI
+      maxRetries: 2, // Máximo 2 reintentos
     });
 
     this.probes = parseInt(this.configService.get<string>('PGVECTOR_PROBES') || '1', 10);
@@ -30,10 +38,21 @@ export class SearchService {
   }
 
   async searchProducts(query: string, limit: number = 5) {
+    const startTime = Date.now();
+    let client;
+    
     try {
       this.logger.log(`Buscando productos con query original: "${query}"`);
 
-      const initialResult = await this.performSemanticSearch(query, limit);
+      // Obtener cliente del pool con timeout
+      client = await Promise.race([
+        this.pool.connect(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Database connection timeout')), 10000)
+        )
+      ]) as any;
+
+      const initialResult = await this.performSemanticSearch(query, limit, client);
 
       if (["EXACTO", "EQUIVALENTE"].includes(initialResult.similitud)) {
         this.logger.log(`Similitud alta detectada (${initialResult.similitud}), no se requiere búsqueda web`);
@@ -41,8 +60,27 @@ export class SearchService {
       }
 
       this.logger.log(`Similitud baja (${initialResult.similitud}), activando búsqueda web para normalización`);
-      const normalizedQuery = await this.normalizeQueryWithWebSearch(query);
-      const resultAfterNormalization = await this.performSemanticSearch(normalizedQuery, limit, query);
+      
+      // Ejecutar normalización con timeout más corto
+      const normalizedQuery = await Promise.race([
+        this.normalizeQueryWithWebSearch(query),
+        new Promise<string>((resolve) => 
+          setTimeout(() => {
+            this.logger.warn('Web search timeout, usando query original');
+            resolve(query);
+          }, 30000) // 30 segundos max para web search
+        )
+      ]);
+
+      const resultAfterNormalization = await this.performSemanticSearch(
+        normalizedQuery, 
+        limit, 
+        client, 
+        query
+      );
+
+      const totalTime = Date.now() - startTime;
+      this.logger.log(`Búsqueda completada en ${totalTime}ms`);
 
       return {
         ...resultAfterNormalization,
@@ -50,67 +88,101 @@ export class SearchService {
       };
 
     } catch (error) {
-      this.logger.error(`Error en búsqueda general: ${error.message}`, error.stack);
+      const totalTime = Date.now() - startTime;
+      this.logger.error(`Error en búsqueda general después de ${totalTime}ms: ${error.message}`, error.stack);
       throw new Error(`Error en búsqueda semántica: ${error.message}`);
+    } finally {
+      if (client) {
+        client.release();
+      }
     }
   }
 
-  private async performSemanticSearch(inputText: string, limit: number = 5, originalQueryOverride?: string) {
-    const embeddingResponse = await this.openai.embeddings.create({
-      model: this.embeddingModel,
-      input: inputText,
-    });
+  private async performSemanticSearch(
+    inputText: string, 
+    limit: number = 5, 
+    client: any, 
+    originalQueryOverride?: string
+  ) {
+    try {
+      // Crear embedding con timeout
+      const embeddingResponse = await Promise.race([
+        this.openai.embeddings.create({
+          model: this.embeddingModel,
+          input: inputText,
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('OpenAI embedding timeout')), 30000)
+        )
+      ]) as any;
 
-    let embedding = embeddingResponse.data[0].embedding;
+      let embedding = embeddingResponse.data[0].embedding;
 
-    if (!Array.isArray(embedding)) {
-      this.logger.warn('El embedding no es un array, intentando convertir...');
-      try {
-        if (typeof embedding === 'object') {
-          embedding = Object.values(embedding);
-        } else if (typeof embedding === 'string') {
-          embedding = JSON.parse(embedding);
+      if (!Array.isArray(embedding)) {
+        this.logger.warn('El embedding no es un array, intentando convertir...');
+        try {
+          if (typeof embedding === 'object') {
+            embedding = Object.values(embedding);
+          } else if (typeof embedding === 'string') {
+            embedding = JSON.parse(embedding);
+          }
+        } catch (error) {
+          this.logger.error(`Error al convertir embedding: ${error.message}`);
+          throw new Error('Formato de embedding inválido');
         }
-      } catch (error) {
-        this.logger.error(`Error al convertir embedding: ${error.message}`);
-        throw new Error('Formato de embedding inválido');
       }
+
+      const vectorString = `[${embedding.join(',')}]`;
+
+      // Configurar probes con timeout
+      await Promise.race([
+        client.query(`SET ivfflat.probes = ${this.probes}`),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Set probes timeout')), 5000)
+        )
+      ]);
+
+      // Ejecutar búsqueda vectorial con timeout
+      const result = await Promise.race([
+        client.query(
+          `SELECT 
+             id::TEXT,
+             text AS description,
+             1 - (embedding <=> $1::vector) AS similarity
+           FROM 
+             ${this.productTable}
+           ORDER BY 
+             embedding <=> $1::vector
+           LIMIT $2`,
+          [vectorString, limit]
+        ),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Vector search timeout')), 25000)
+        )
+      ]) as any;
+
+      this.logger.log(`Productos similares encontrados: ${result.rows.length}`);
+
+      if (result.rows.length === 0) {
+        return {
+          codigo: null,
+          descripcion: null,
+          similitud: "DISTINTO"
+        };
+      }
+
+      const best = await this.selectBestProductWithGPT(
+        originalQueryOverride || inputText,
+        result.rows,
+        inputText
+      );
+
+      return best;
+
+    } catch (error) {
+      this.logger.error(`Error en búsqueda semántica: ${error.message}`);
+      throw error;
     }
-
-    const vectorString = `[${embedding.join(',')}]`;
-
-    await this.pool.query(`SET ivfflat.probes = ${this.probes}`);
-
-    const result = await this.pool.query(
-      `SELECT 
-         id::TEXT,
-         text AS description,
-         1 - (embedding <=> $1::vector) AS similarity
-       FROM 
-         ${this.productTable}
-       ORDER BY 
-         embedding <=> $1::vector
-       LIMIT $2`,
-      [vectorString, limit]
-    );
-
-    this.logger.log(`Productos similares encontrados: ${result.rows.length}`);
-
-    if (result.rows.length === 0) {
-      return {
-        codigo: null,
-        descripcion: null,
-        similitud: "DISTINTO"
-      };
-    }
-
-    const best = await this.selectBestProductWithGPT(
-      originalQueryOverride || inputText,
-      result.rows,
-      inputText
-    );
-
-    return best;
   }
 
   private async selectBestProductWithGPT(originalQuery: string, products: any[], normalizedQuery: string) {
@@ -171,12 +243,9 @@ INSTRUCCIONES:
   "razon": "[explicación breve de por qué es el mejor match]"
 }`;
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 20000);
-
-      let gptResponse;
-      try {
-        gptResponse = await this.openai.chat.completions.create({
+      // GPT con timeout más agresivo
+      const gptResponse = await Promise.race([
+        this.openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [
             {
@@ -190,12 +259,11 @@ INSTRUCCIONES:
           ],
           temperature: 0.1,
           max_tokens: 300
-        }, {
-          signal: controller.signal
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('GPT selection timeout')), 15000)
+        )
+      ]) as any;
 
       const gptContent = gptResponse.choices[0].message.content?.trim();
       this.logger.log(`GPT response: ${gptContent}`);
@@ -283,18 +351,25 @@ INSTRUCCIONES:
     try {
       this.logger.log(`Normalizando query con búsqueda web real: "${query}"`);
 
-      const response = await this.openai.responses.create({
-        model: "gpt-4o",
-        tools: [{ type: "web_search_preview" }],
-        input: `Tu tarea es buscar en internet el producto mencionado y devolver únicamente el nombre técnico más preciso basado en la información encontrada. No expliques nada. Incluye marca, tipo, color, y presentación si están disponibles. Usa siempre minúsculas y sin comillas.
+      // Web search con timeout más corto
+      const response = await Promise.race([
+        this.openai.responses.create({
+          model: "gpt-4o",
+          tools: [{ type: "web_search_preview" }],
+          input: `Tu tarea es buscar en internet el producto mencionado y devolver únicamente el nombre técnico más preciso basado en la información encontrada. No expliques nada. Incluye marca, tipo, color, y presentación si están disponibles. Usa siempre minúsculas y sin comillas.
 
 Ejemplos:
-"pintura blanca 5 gal sherwin" => pintura blanca sherwin 5 galones
+"pintura blanca 5 gal sherwin" => pintura blanca 5 galones
 "guantes de corte nivel 5 m" => guantes corte nivel 5 talla m
-"silicona teka transparente 280ml" => silicona neutra transparente teka 280ml
+"silicona teka transparente 280ml" => silicona neutra transparente 280ml
+"brocha tumi 2" => brocha de nylon tumi de 2 pulgadas
 
 Producto a normalizar: ${query}`,
-      });
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Web search timeout')), 25000)
+        )
+      ]) as any;
 
       const normalized = response.output_text?.trim().replace(/^"|"$/g, '');
       this.logger.log(`Query normalizada: "${normalized}"`);
@@ -303,5 +378,10 @@ Producto a normalizar: ${query}`,
       this.logger.error(`Error en normalización con búsqueda web: ${error.message}`);
       return query;
     }
+  }
+
+  // Método para limpiar conexiones al cerrar la aplicación
+  async onModuleDestroy() {
+    await this.pool.end();
   }
 }
