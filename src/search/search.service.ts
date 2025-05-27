@@ -286,13 +286,12 @@ INSTRUCCIONES:
       const response = await this.openai.responses.create({
         model: "gpt-4o",
         tools: [{ type: "web_search_preview" }],
-        input: `Tu tarea es buscar en internet el producto mencionado y devolver únicamente el nombre técnico más preciso basado en la información encontrada. Asegurate que sea para el mismo uso. No expliques nada. Considera la presentación si están disponibles. Usa siempre minúsculas y sin comillas.
+        input: `Tu tarea es buscar en internet el producto mencionado y devolver únicamente el nombre técnico más preciso basado en la información encontrada. No expliques nada. Incluye marca, tipo, color, y presentación si están disponibles. Usa siempre minúsculas y sin comillas.
 
 Ejemplos:
-"pintura blanca 5 gal sherwin" => pintura blanca 5 galones
+"pintura blanca 5 gal sherwin" => pintura blanca sherwin 5 galones
 "guantes de corte nivel 5 m" => guantes corte nivel 5 talla m
-"silicona teka transparente 280ml" => silicona neutra transparente 280ml
-"alambre galvanizado prodac calibre 10" => alambre galvanizado número 10
+"silicona teka transparente 280ml" => silicona neutra transparente teka 280ml
 
 Producto a normalizar: ${query}`,
       });
