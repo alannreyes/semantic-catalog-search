@@ -171,21 +171,30 @@ INSTRUCCIONES:
   "razon": "[explicación breve de por qué es el mejor match]"
 }`;
 
-      const gptResponse = await this.openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: "Eres un experto en análisis de productos. Respondes solo con JSON válido."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.1,
-        max_tokens: 300
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000); // 20 segundos máximo
+
+      let gptResponse;
+      try {
+        gptResponse = await this.openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "Eres un experto en análisis de productos. Respondes solo con JSON válido."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 300,
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       const gptContent = gptResponse.choices[0].message.content?.trim();
       this.logger.log(`GPT response: ${gptContent}`);
@@ -212,9 +221,22 @@ INSTRUCCIONES:
         throw new Error(`Índice de producto seleccionado inválido: ${gptDecision.selectedIndex}`);
       }
 
+      let description = selectedProduct.text;
+      let codigo = selectedProduct.codigo;
+
+      try {
+        const parsed = JSON.parse(description);
+        if (parsed.text) {
+          description = parsed.text;
+        }
+        if (!codigo && parsed.metadata?.codigo) {
+          codigo = parsed.metadata.codigo;
+        }
+      } catch {}
+
       return {
-        codigo: selectedProduct.codigo,
-        descripcion: selectedProduct.text,
+        codigo: codigo,
+        descripcion: description,
         similitud: gptDecision.similitud,
         razon: gptDecision.razon
       };
@@ -261,7 +283,7 @@ Ejemplos:
 Producto a normalizar: ${query}`,
       });
 
-      const normalized = response.output_text?.trim().replace(/^\"|\"$/g, '');
+      const normalized = response.output_text?.trim().replace(/^"|"$/g, '');
       this.logger.log(`Query normalizada: "${normalized}"`);
       return normalized || query;
     } catch (error) {
