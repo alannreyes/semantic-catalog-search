@@ -99,7 +99,7 @@ export class SearchService {
     if (result.rows.length === 0) {
       return {
         codigo: null,
-        text: null,
+        descripcion: null,
         similitud: "DISTINTO"
       };
     }
@@ -191,7 +191,6 @@ INSTRUCCIONES:
       this.logger.log(`GPT response: ${gptContent}`);
 
       if (!gptContent) {
-        this.logger.error('GPT response content is null or empty');
         throw new Error('GPT no devolvió contenido válido');
       }
 
@@ -210,14 +209,14 @@ INSTRUCCIONES:
       const selectedProduct = productsForGPT[gptDecision.selectedIndex - 1];
 
       if (!selectedProduct) {
-        this.logger.error(`Índice inválido: ${gptDecision.selectedIndex}`);
-        throw new Error('Índice de producto seleccionado inválido');
+        throw new Error(`Índice de producto seleccionado inválido: ${gptDecision.selectedIndex}`);
       }
 
       return {
         codigo: selectedProduct.codigo,
-        text: selectedProduct.text,
-        similitud: gptDecision.similitud
+        descripcion: selectedProduct.text,
+        similitud: gptDecision.similitud,
+        razon: gptDecision.razon
       };
 
     } catch (error) {
@@ -238,8 +237,9 @@ INSTRUCCIONES:
 
       return {
         codigo: productCode,
-        text: cleanText,
-        similitud: "ALTERNATIVO"
+        descripcion: cleanText,
+        similitud: "ALTERNATIVO",
+        razon: "Error al procesar selección GPT, se usó el primer resultado por defecto"
       };
     }
   }
@@ -261,7 +261,7 @@ Ejemplos:
 Producto a normalizar: ${query}`,
       });
 
-      const normalized = response.output_text?.trim().replace(/^["']|["']$/g, '');
+      const normalized = response.output_text?.trim().replace(/^\"|\"$/g, '');
       this.logger.log(`Query normalizada: "${normalized}"`);
       return normalized || query;
     } catch (error) {
