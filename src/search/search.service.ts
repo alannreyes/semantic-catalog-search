@@ -226,14 +226,26 @@ INSTRUCCIONES:
       let codigo = selectedProduct.codigo;
 
       try {
-        const parsed = JSON.parse(description);
-        if (parsed.text) {
-          description = parsed.text;
+        // Parseo profundo del campo text en caso de estar doblemente embebido
+        if (typeof description === 'string' && description.includes('{')) {
+          const parsed1 = JSON.parse(description);
+
+          if (typeof parsed1.text === 'string' && parsed1.text.includes('{')) {
+            const parsed2 = JSON.parse(parsed1.text);
+            description = parsed2.text || parsed1.text;
+            if (!codigo && parsed2.metadata?.codigo) {
+              codigo = parsed2.metadata.codigo;
+            }
+          } else {
+            description = parsed1.text || description;
+            if (!codigo && parsed1.metadata?.codigo) {
+              codigo = parsed1.metadata.codigo;
+            }
+          }
         }
-        if (!codigo && parsed.metadata?.codigo) {
-          codigo = parsed.metadata.codigo;
-        }
-      } catch {}
+      } catch (err) {
+        this.logger.warn(`No se pudo parsear 'description': ${err.message}`);
+      }
 
       return {
         codigo: codigo,
