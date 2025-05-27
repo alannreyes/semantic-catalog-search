@@ -177,21 +177,14 @@ INSTRUCCIONES:
       let gptResponse;
       try {
         gptResponse = await this.openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: "Eres un experto en análisis de productos. Respondes solo con JSON válido."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          temperature: 0.1,
-          max_tokens: 300,
-          signal: controller.signal
-        });
+		model: "gpt-4o-mini",
+		messages: [...],
+		temperature: 0.1,
+		max_tokens: 300
+		}, {
+		signal: controller.signal // ✅ Pasado como segundo argumento
+		});
+
       } finally {
         clearTimeout(timeout);
       }
