@@ -1,10 +1,9 @@
 import { Module, Logger } from '@nestjs/common'; 
 import { SearchService } from './search.service';
-// Si tienes un SearchController, también debería estar importado y listado en 'controllers'
-// import { SearchController } from './search.controller';
+import { SearchController } from './search.controller';
 
 @Module({
-  // controllers: [SearchController], // Descomenta si tienes un controlador
+  controllers: [SearchController], 
   providers: [
     SearchService,
     Logger
