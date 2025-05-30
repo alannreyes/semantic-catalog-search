@@ -2,12 +2,12 @@ import { LoggerService, Injectable, OnApplicationShutdown } from '@nestjs/common
 import * as winston from 'winston';
 import { Pool } from 'pg'; // Importa el Pool de 'pg' para la conexión a la base de datos
 import { ConfigService } from '@nestjs/config'; // Importa ConfigService para leer variables de entorno
-import TransportStream from 'winston-transport';
+import * as TransportStream from 'winston-transport';
 
 // --- Custom Winston Transport para PostgreSQL ---
 // Esta clase define cómo Winston debe enviar los logs a tu base de datos PostgreSQL.
 
-class PostgresTransport extends TransportStream {
+class PostgresTransport extends (TransportStream as any) {
 
   private pool: Pool; // Pool de conexiones a la base de datos
 
@@ -102,17 +102,17 @@ export class WinstonLoggerService implements LoggerService, OnApplicationShutdow
             level: 'debug' // Puedes poner un nivel de log más detallado para la consola
         }),
         // PostgreSQL Transport: Envía los logs a la base de datos
-        new PostgresTransport({ pool: this.pool, level: 'info' }), // Envía logs de nivel 'info' y superiores a la DB
+new PostgresTransport({ pool: this.pool, level: 'info' }) as unknown as TransportStream
       ],
       // Manejo de excepciones no capturadas: Envía errores a consola y DB
       exceptionHandlers: [ 
         new winston.transports.Console(),
-        new PostgresTransport({ pool: this.pool, level: 'error' }),
+new PostgresTransport({ pool: this.pool, level: 'info' }) as unknown as TransportStream
       ],
       // Manejo de promesas rechazadas no capturadas: Envía errores a consola y DB
       rejectionHandlers: [ 
         new winston.transports.Console(),
-        new PostgresTransport({ pool: this.pool, level: 'error' }),
+new PostgresTransport({ pool: this.pool, level: 'info' }) as unknown as TransportStream
       ],
     });
 
