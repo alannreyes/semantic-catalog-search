@@ -80,7 +80,7 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
         {
           duration_ms: Number(initialSearchEnd - initialSearchStart) / 1_000_000,
           query_text: query, 
-          similitud_resultado: initialResult.similitud
+          similitud_resultado: initialResult.similitud,
 		  segmento_precio_usado_inicial: segmentoPrecio 
 
         }
@@ -130,7 +130,7 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
         {
           duration_ms: Number(resultAfterNormalizationEnd - resultAfterNormalizationStart) / 1_000_000,
           query_text: normalizedQuery,
-          similitud_resultado: resultAfterNormalization.similitud
+          similitud_resultado: resultAfterNormalization.similitud,
 		  segmento_precio_usado_final: segmentoPrecio
         }
       );
