@@ -181,7 +181,7 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
       // --- LOGGING DE CREACIÓN DE EMBEDDING ---
       const embeddingStart = process.hrtime.bigint();
       const embeddingResponse = await Promise.race([
-        this.openai.embeddings.create({ model: this.embeddingModel, input: inputText }),
+        this.openai.embeddings.create({ model: this.embeddingModel, input: inputText, dimensions: 1024 }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('OpenAI embedding timeout')), 30000))
       ]) as any;
       const embeddingEnd = process.hrtime.bigint();
