@@ -1,24 +1,10 @@
-import { Module, Logger, Global } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { SearchModule } from './search/search.module';
-import { WinstonLoggerService } from './common/logger/winston-logger.service';
 import * as Joi from 'joi';
 
-// Crea un módulo global para el Logger
-@Global()
-@Module({
-  providers: [
-    WinstonLoggerService,
-    {
-      provide: Logger,
-      useClass: WinstonLoggerService,
-    },
-  ],
-  exports: [Logger, WinstonLoggerService],
-})
-class GlobalLoggerModule {}
 
 @Module({
   imports: [
@@ -33,7 +19,6 @@ class GlobalLoggerModule {}
         PRODUCT_TABLE: Joi.string().default('productos_1024'),
       }),
     }),
-    GlobalLoggerModule, // Importa el módulo global del Logger
     SearchModule,
   ],
   controllers: [AppController],
