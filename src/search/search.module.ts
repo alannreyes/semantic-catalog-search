@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
-import { SearchController } from './search.controller';
 import { SearchService } from './search.service';
+import { LoggerModule } from '../common/logger/logger.module'; // Ajusta la ruta
 
 @Module({
-  controllers: [SearchController],
+  imports: [LoggerModule], // Importa el LoggerModule
   providers: [SearchService],
+  exports: [SearchService],
 })
 export class SearchModule {}

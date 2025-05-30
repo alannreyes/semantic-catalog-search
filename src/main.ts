@@ -9,7 +9,7 @@ async function bootstrap() {
   // Habilitar CORS
   app.enableCors(); // Habilita las políticas de CORS
   
-  await app.listen(3000);
-  logger.log(`SemanticCatalogSearch API running on port 3000`);
+  await app.listen(4000);
+  logger.log(`SemanticCatalogSearch API running on port 4000`);
 }
 bootstrap(); // Llama a la función de inicialización
