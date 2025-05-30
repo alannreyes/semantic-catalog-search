@@ -94,7 +94,7 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
         return { ...initialResult, normalizado: null };
       }
 
-      this.logger.log(`Similitud baja (${initialResult.similitud}), activando normalización de query con GPT-4o.`, SearchService.name);
+      this.logger.log(`Similitud baja (${initialResult.similitud}), activando normalización de query con GPT-4.1.`, SearchService.name);
 
       const normalizeStart = process.hrtime.bigint();
       const normalizedQuery = await Promise.race([
@@ -383,7 +383,7 @@ ${instructionsForPriceSegment}
       const gptCallStart = process.hrtime.bigint();
       const gptResponse = await Promise.race([
         this.openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-4.1",
           messages: [
             {
               role: "system",
@@ -405,7 +405,7 @@ ${instructionsForPriceSegment}
         SearchService.name,
         {
           duration_ms: Number(gptCallEnd - gptCallStart) / 1_000_000,
-          model: "gpt-4o",
+          model: "gpt-4.1",
           tokens_used: gptResponse.usage?.total_tokens
         }
       );
@@ -502,7 +502,7 @@ try {
     const stepStartTime = process.hrtime.bigint(); // <--- INICIO DE MEDICIÓN
     try {
       this.logger.log(
-        `Iniciando normalización de query con GPT-4o para: "${query}"`,
+        `Iniciando normalización de query con GPT-4.1 para: "${query}"`,
         SearchService.name
       );
 
@@ -510,7 +510,7 @@ try {
       const gptNormalizationCallStart = process.hrtime.bigint();
       const response = await Promise.race([
         this.openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-4.1",
           messages: [
             {
               role: "system",
@@ -541,7 +541,7 @@ try {
         SearchService.name,
         {
           duration_ms: Number(gptNormalizationCallEnd - gptNormalizationCallStart) / 1_000_000,
-          model: "gpt-4o",
+          model: "gpt-4.1",
           tokens_used: response.usage?.total_tokens
         }
       );
