@@ -260,8 +260,16 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
       );
 
       if (result.rows.length === 0) {
-        return { codigo: null, descripcion: null, similitud: "DISTINTO" };
-      }
+  return {
+    codigo: null,
+    marca: null,
+    segmento_precio: null,
+    codfabrica: null,
+    descripcion: null,
+    similitud: "DISTINTO",
+    razon: "No se encontraron productos similares en la base de datos"
+  };
+}
 
       // --- SELECCIÓN GPT ---
       const gptSelectionStart = process.hrtime.bigint();
@@ -403,24 +411,30 @@ ${instructionsForPriceSegment}
       );
 
       const gptContent = gptResponse.choices[0].message.content?.trim();
-      this.logger.log(
-        `GPT response recibido.`,
-        SearchService.name,
-        { content_length: gptContent?.length || 0 }
-      );
+this.logger.log(
+    `Contenido CRUDO de GPT para selectBestProduct: -----\n${gptContent}\n-----`, 
+    SearchService.name
+);
+this.logger.log(
+    `GPT response recibido (para selectBestProduct).`, 
+    SearchService.name, 
+    { content_length: gptContent?.length || 0 } // Log actual
+);
 
-      if (!gptContent) {
-        throw new Error('GPT no devolvió contenido válido');
-      }
+if (!gptContent) {
+  this.logger.error('GPT (selectBestProduct) no devolvió contenido (null o vacío).', SearchService.name);
+  throw new Error('GPT no devolvió contenido válido para selectBestProduct');
+}
 
-      let gptDecision;
-      try {
-        gptDecision = JSON.parse(gptContent);
-      } catch (error) {
-        this.logger.error(
-          `Error parsing GPT response: ${error.message}`,
-          error.stack,
-          SearchService.name
+let gptDecision;
+try {
+  gptDecision = JSON.parse(gptContent);
+} catch (error) {
+  this.logger.error(
+    `Error al parsear JSON de GPT (selectBestProduct): <span class="math-inline">\{error\.message\}\. Contenido crudo que intentó parsear\: \>\>\></span>{gptContent}<<<`, 
+    error.stack, 
+    SearchService.name
+
         );
         gptDecision = {
           selectedIndex: 1,
@@ -450,6 +464,9 @@ ${instructionsForPriceSegment}
       );
       return {
         codigo: codigo,
+		marca: selectedProduct.marca,
+		segmento_precio: selectedProduct.segmento_precio,
+		codfabrica: selectedProduct.codfabrica, 
         descripcion: description,
         similitud: gptDecision.similitud,
         razon: gptDecision.razon
@@ -470,6 +487,9 @@ ${instructionsForPriceSegment}
 
       return {
         codigo: productCode,
+		marca: firstProduct.marca || null,
+		segmento_precio: firstProduct.segmento_precio || null,
+		codfabrica: firstProduct.codfabrica || null,
         descripcion: cleanText,
         similitud: "ALTERNATIVO",
         razon: "Error al procesar selección GPT, se usó el primer resultado por defecto"
