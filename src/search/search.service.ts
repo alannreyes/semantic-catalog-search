@@ -364,18 +364,27 @@ export class SearchService implements OnModuleDestroy {
     limit?: number
   ) {
     const stepStartTime = process.hrtime.bigint();
+    
+    // Validación temprana de productos
+    if (!products || products.length === 0) {
+      this.logger.warn('No hay productos para procesar con GPT', SearchService.name);
+      return { codigo: null, descripcion: null, similitud: "DISTINTO" };
+    }
+
     try {
       this.logger.log(
         `Iniciando selectBestProductWithGPT para: "${originalQuery}" con segmento de precio deseado: ${segmentoPrecioDeseado || 'cualquiera'}`,
-        SearchService.name
+        SearchService.name,
+        { productos_disponibles: products.length }
       );
 
       const productsForGPT = products.map((product, index) => {
-        const cleanText = product.descripcion || '';
-        const productCode = product.codigo || '';
-        const productMarca = product.marca || 'N/A';
-        const productSegmentoPrecio = product.segmento_precio || 'ESTANDAR';
-        const productCodFabrica = product.codfabrica || '';
+        // Validaciones defensivas
+        const cleanText = (product.descripcion || '').trim();
+        const productCode = (product.codigo || '').trim();
+        const productMarca = (product.marca || 'N/A').trim();
+        const productSegmentoPrecio = (product.segmento_precio || 'ESTANDAR').trim();
+        const productCodFabrica = (product.codfabrica || '').trim();
 
         return {
           index: index + 1,
@@ -384,10 +393,11 @@ export class SearchService implements OnModuleDestroy {
           marca: productMarca,
           segmento_precio: productSegmentoPrecio,
           codfabrica: productCodFabrica,
-          vectorSimilarity: product.similarity
+          vectorSimilarity: Number(product.similarity || 0).toFixed(4)
         };
       });
 
+      // Preparar candidatos
       const candidatos = {};
       const maxCandidatos = limit || 5;
       
@@ -400,156 +410,246 @@ export class SearchService implements OnModuleDestroy {
       let instructionsForPriceSegment = '';
       if (segmentoPrecioDeseado) {
         instructionsForPriceSegment = `
-Si el usuario indicó un segmento de precio, prioriza los productos de ese segmento. Si no hay un match exacto en el segmento, busca el más cercano según esta preferencia:
-- Si es '${segmentoPrecioDeseado}':
-  - Si es PREMIUM, busca PREMIUM, luego ESTANDAR, luego ECONOMICO.
-  - Si es ESTANDAR, busca ESTANDAR, luego PREMIUM, luego ECONOMICO.
-  - Si es ECONOMICO, busca ECONOMICO, luego ESTANDAR, luego PREMIUM.
-`;
+IMPORTANTE - PREFERENCIA DE SEGMENTO DE PRECIO:
+El usuario prefiere productos del segmento '${segmentoPrecioDeseado}'. 
+Orden de preferencia:
+${segmentoPrecioDeseado === 'PREMIUM' ? '1. PREMIUM 2. ESTANDAR 3. ECONOMICO' : 
+  segmentoPrecioDeseado === 'ESTANDAR' ? '1. ESTANDAR 2. PREMIUM 3. ECONOMICO' : 
+  '1. ECONOMICO 2. ESTANDAR 3. PREMIUM'}`;
       }
 
-      const prompt = `Eres un experto en productos y debes seleccionar el mejor producto que coincida con la búsqueda del usuario.
+      // Preparar prompt más robusto con mejor formato
+      const productList = productsForGPT.map(p => 
+        `${p.index}. CÓDIGO: ${p.codigo} | DESCRIPCIÓN: "${p.text}" | MARCA: ${p.marca} | SEGMENTO: ${p.segmento_precio} | COD_FÁBRICA: ${p.codfabrica} | SIMILITUD: ${p.vectorSimilarity}`
+      ).join('\n');
 
-QUERY ORIGINAL: "${originalQuery}"
+      const prompt = `Analiza los productos y selecciona el mejor match para la búsqueda del usuario.
 
-PRODUCTOS CANDIDATOS:
-${productsForGPT.map(p => `${p.index}. CODIGO: ${p.codigo} | TEXTO: "${p.text}" | MARCA: ${p.marca} | SEGMENTO PRECIO: ${p.segmento_precio} | CODIGO FABRICA: ${p.codfabrica} | Similitud vectorial: ${p.vectorSimilarity}`).join('\n')}
+CONSULTA DEL USUARIO: "${originalQuery}"
+
+PRODUCTOS DISPONIBLES:
+${productList}
+
+${instructionsForPriceSegment}
 
 ESCALA DE SIMILITUD:
-- EXACTO: Es exactamente el producto buscado, es lo mismo que se busca
-- EQUIVALENTE: Cumple la misma función, mismas especificaciones
-- COMPATIBLE: Funciona para el mismo propósito, especificaciones similares
-- ALTERNATIVO: Puede servir pero con diferencias notables
-- DISTINTO: No es lo que se busca
+- EXACTO: Es exactamente lo que busca el usuario
+- EQUIVALENTE: Cumple la misma función con especificaciones similares
+- COMPATIBLE: Funciona para el mismo propósito
+- ALTERNATIVO: Puede servir pero con diferencias
+- DISTINTO: No es lo que busca
 
 INSTRUCCIONES:
-1. Analiza cada producto considerando marca, modelo, tamaño, características técnicas, y código de fábrica.
-2. Selecciona SOLO UNO que sea el mejor match para el query original.
-${instructionsForPriceSegment}
-3. Asigna un nivel de similitud según la escala.
-4. Responde SOLO con un JSON válido en este formato exacto:
+1. Analiza cada producto considerando: marca, modelo, características, código de fábrica
+2. Selecciona SOLO UN producto (el mejor match)
+3. Considera la preferencia de segmento de precio si se especificó
+4. Responde ÚNICAMENTE con JSON válido:
 
 {
-  "selectedIndex": [número del producto seleccionado 1-5],
-  "similitud": "[EXACTO|EQUIVALENTE|COMPATIBLE|ALTERNATIVO|DISTINTO]",
-  "razon": "[explicación breve de por qué es el mejor match]"
+  "selectedIndex": 1,
+  "similitud": "EXACTO",
+  "razon": "Explicación breve"
 }`;
 
-      // --- LLAMADA A GPT ---
+      this.logger.debug(
+        `Enviando prompt a GPT`,
+        SearchService.name,
+        { 
+          prompt_length: prompt.length,
+          productos_procesados: productsForGPT.length 
+        }
+      );
+
+      // --- LLAMADA A GPT CON MEJOR MANEJO DE ERRORES ---
       const gptCallStart = process.hrtime.bigint();
-      const gptResponse = await Promise.race([
-        this.openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: "Eres un experto en análisis de productos industriales y suministros. Respondes solo con JSON válido."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          temperature: 0.1,
-          max_tokens: 300
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('GPT selection timeout')), 15000))
-      ]) as any;
+      let gptResponse;
+      
+      try {
+        gptResponse = await Promise.race([
+          this.openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              {
+                role: "system",
+                content: "Eres un experto en análisis de productos industriales. SIEMPRE respondes con JSON válido y nada más."
+              },
+              {
+                role: "user",
+                content: prompt
+              }
+            ],
+            temperature: 0.1,
+            max_tokens: 200,
+            response_format: { type: "json_object" } // Forzar respuesta JSON
+          }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('GPT selection timeout after 15s')), 15000)
+          )
+        ]) as any;
+      } catch (openaiError) {
+        this.logger.error(
+          `Error en llamada a OpenAI API`,
+          openaiError.stack,
+          SearchService.name,
+          { 
+            error_type: openaiError.constructor.name,
+            error_code: openaiError.code,
+            error_status: openaiError.status 
+          }
+        );
+        throw new Error(`OpenAI API Error: ${openaiError.message}`);
+      }
+
       const gptCallEnd = process.hrtime.bigint();
       this.logger.debug(
-        `Llamada a GPT completada.`,
+        `Llamada a GPT completada exitosamente.`,
         SearchService.name,
         {
           duration_ms: Number(gptCallEnd - gptCallStart) / 1_000_000,
           model: "gpt-4o",
-          tokens_used: gptResponse.usage?.total_tokens
+          tokens_used: gptResponse.usage?.total_tokens || 0
         }
       );
 
-      const gptContent = gptResponse.choices[0].message.content?.trim();
-      this.logger.log(
-        `GPT response recibido.`,
+      const gptContent = gptResponse.choices[0]?.message?.content?.trim();
+      this.logger.debug(
+        `Respuesta GPT recibida`,
         SearchService.name,
-        { content_length: gptContent?.length || 0 }
+        { 
+          content_length: gptContent?.length || 0,
+          raw_content: gptContent?.substring(0, 200) + (gptContent?.length > 200 ? '...' : '')
+        }
       );
 
       if (!gptContent) {
-        throw new Error('GPT no devolvió contenido válido');
+        throw new Error('GPT devolvió contenido vacío');
       }
 
+      // Parsear respuesta JSON con mejor manejo de errores
       let gptDecision;
       try {
         gptDecision = JSON.parse(gptContent);
-      } catch (error) {
+        
+        // Validar estructura del JSON
+        if (!gptDecision.selectedIndex || !gptDecision.similitud) {
+          throw new Error('JSON response missing required fields');
+        }
+        
+        // Validar valores
+        const index = parseInt(gptDecision.selectedIndex);
+        if (isNaN(index) || index < 1 || index > productsForGPT.length) {
+          throw new Error(`Invalid selectedIndex: ${gptDecision.selectedIndex}`);
+        }
+        
+        const validSimilitudes = ['EXACTO', 'EQUIVALENTE', 'COMPATIBLE', 'ALTERNATIVO', 'DISTINTO'];
+        if (!validSimilitudes.includes(gptDecision.similitud)) {
+          this.logger.warn(`Invalid similitud value: ${gptDecision.similitud}, using ALTERNATIVO`, SearchService.name);
+          gptDecision.similitud = 'ALTERNATIVO';
+        }
+        
+      } catch (parseError) {
         this.logger.error(
-          `Error parsing GPT response: ${error.message}`,
-          error.stack,
-          SearchService.name
+          `Error parsing GPT JSON response`,
+          parseError.stack,
+          SearchService.name,
+          { 
+            raw_response: gptContent,
+            parse_error: parseError.message 
+          }
         );
+        
+        // Fallback con análisis de similitud vectorial
         gptDecision = {
           selectedIndex: 1,
           similitud: "ALTERNATIVO",
-          razon: "Error en análisis GPT, seleccionado por similitud vectorial"
+          razon: `Error parsing GPT response, using highest similarity product. Parse error: ${parseError.message}`
         };
       }
 
       const selectedProduct = productsForGPT[gptDecision.selectedIndex - 1];
 
       if (!selectedProduct) {
-        throw new Error(`Índice de producto seleccionado inválido: ${gptDecision.selectedIndex}`);
+        throw new Error(`Selected product not found at index ${gptDecision.selectedIndex}`);
       }
-
-      const description = selectedProduct.text;
-      const codigo = selectedProduct.codigo;
 
       const totalStepTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
       this.logger.log(
-        `selectBestProductWithGPT finalizado.`,
+        `selectBestProductWithGPT completado exitosamente.`,
         SearchService.name,
         {
           duration_ms: totalStepTime,
           selected_similitud: gptDecision.similitud,
-          selected_index: gptDecision.selectedIndex
+          selected_index: gptDecision.selectedIndex,
+          selected_codigo: selectedProduct.codigo
         }
       );
 
       return {
-        codigo: codigo,
-        descripcion: description,
+        codigo: selectedProduct.codigo,
+        descripcion: selectedProduct.text,
         similitud: gptDecision.similitud,
-        razon: gptDecision.razon,
+        razon: gptDecision.razon || 'Seleccionado por GPT',
         ...candidatos
       };
 
     } catch (error) {
       const totalStepTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
+      
       this.logger.error(
-        `Error en selección GPT.`,
+        `Error crítico en selectBestProductWithGPT`,
         error.stack,
         SearchService.name,
-        { duration_ms: totalStepTime, error_message: error.message }
+        { 
+          duration_ms: totalStepTime, 
+          error_message: error.message,
+          error_type: error.constructor.name,
+          original_query: originalQuery,
+          products_count: products.length
+        }
       );
 
-      const firstProduct = products[0];
-      const cleanText = firstProduct.descripcion || '';
-      const productCode = firstProduct.codigo || '';
+      // Fallback robusto
+      try {
+        const firstProduct = products[0];
+        const cleanText = (firstProduct.descripcion || '').trim();
+        const productCode = (firstProduct.codigo || '').trim();
 
-      const candidatos = {};
-      const maxCandidatos = limit || 5;
-      
-      for (let i = 0; i < Math.min(products.length, maxCandidatos); i++) {
-        const candidateIndex = i + 1;
-        candidatos[`CA${candidateIndex}`] = products[i].codigo || '';
-        candidatos[`DA${candidateIndex}`] = products[i].descripcion || '';
+        const candidatos = {};
+        const maxCandidatos = limit || 5;
+        
+        for (let i = 0; i < Math.min(products.length, maxCandidatos); i++) {
+          const candidateIndex = i + 1;
+          candidatos[`CA${candidateIndex}`] = products[i].codigo || '';
+          candidatos[`DA${candidateIndex}`] = products[i].descripcion || '';
+        }
+
+        this.logger.log(
+          `Usando fallback: primer producto disponible`,
+          SearchService.name,
+          { fallback_codigo: productCode }
+        );
+
+        return {
+          codigo: productCode,
+          descripcion: cleanText,
+          similitud: "ALTERNATIVO",
+          razon: `Fallback after GPT error: ${error.message}`,
+          ...candidatos
+        };
+      } catch (fallbackError) {
+        this.logger.error(
+          `Error crítico en fallback`,
+          fallbackError.stack,
+          SearchService.name
+        );
+        
+        return {
+          codigo: null,
+          descripcion: null,
+          similitud: "DISTINTO",
+          razon: `Critical error in product selection: ${error.message}`
+        };
       }
-
-      return {
-        codigo: productCode,
-        descripcion: cleanText,
-        similitud: "ALTERNATIVO",
-        razon: "Error al procesar selección GPT, se usó el primer resultado por defecto",
-        ...candidatos
-      };
     }
   }
 
