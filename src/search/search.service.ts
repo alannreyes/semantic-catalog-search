@@ -11,7 +11,7 @@ export class SearchService implements OnModuleDestroy {
   private readonly probes: number;
   private readonly embeddingModel: string;
   private readonly productTable: string;
-  private readonly vectorDimensions: number; // Nueva propiedad
+  private readonly vectorDimensions: number;
 
   constructor(
     private configService: ConfigService,
@@ -37,7 +37,6 @@ export class SearchService implements OnModuleDestroy {
     this.embeddingModel = this.configService.get<string>('OPENAI_MODEL') || 'text-embedding-3-large';
     this.productTable = this.configService.get<string>('PRODUCT_TABLE') || 'productos_1024';
     
-    // Nueva configuración para dimensiones del vector
     this.vectorDimensions = parseInt(
       this.configService.get<string>('VECTOR_DIMENSIONS') || '1024', 
       10
@@ -48,7 +47,6 @@ export class SearchService implements OnModuleDestroy {
       SearchService.name
     );
 
-    // Validar que las dimensiones sean un número válido
     if (this.vectorDimensions <= 0 || !Number.isInteger(this.vectorDimensions)) {
       this.logger.error(
         `Invalid vector dimensions: ${this.vectorDimensions}. Must be a positive integer.`,
@@ -59,14 +57,14 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
-  async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO') {
+  async searchProducts(query: string, limit: number = 5, segment?: 'premium' | 'standard' | 'economy') {
     const startTime = process.hrtime.bigint();
     let client: PoolClient;
 
     this.logger.log(
       `Iniciando búsqueda de productos.`,
       SearchService.name,
-      { query_text: query, segmento_precio_deseado: segmentoPrecio }
+      { query_text: query, segment_filter: segment }
     );
 
     try {
@@ -89,7 +87,7 @@ export class SearchService implements OnModuleDestroy {
       );
 
       const initialSearchStart = process.hrtime.bigint();
-      const initialResult = await this.performSemanticSearch(query, limit, client, segmentoPrecio);
+      const initialResult = await this.performSemanticSearch(query, limit, client, segment);
       const initialSearchEnd = process.hrtime.bigint();
       this.logger.log(
         `Búsqueda semántica inicial completada. Similitud: ${initialResult.similitud}`,
@@ -98,7 +96,7 @@ export class SearchService implements OnModuleDestroy {
           duration_ms: Number(initialSearchEnd - initialSearchStart) / 1_000_000,
           query_text: query, 
           similitud_resultado: initialResult.similitud,
-          segmento_precio_usado_inicial: segmentoPrecio 
+          segment_used: segment 
         }
       );
 
@@ -135,7 +133,7 @@ export class SearchService implements OnModuleDestroy {
         normalizedQuery,
         limit,
         client,
-        segmentoPrecio,
+        segment,
         query
       );
       const resultAfterNormalizationEnd = process.hrtime.bigint();
@@ -146,7 +144,7 @@ export class SearchService implements OnModuleDestroy {
           duration_ms: Number(resultAfterNormalizationEnd - resultAfterNormalizationStart) / 1_000_000,
           query_text: normalizedQuery,
           similitud_resultado: resultAfterNormalization.similitud,
-          segmento_precio_usado_final: segmentoPrecio
+          segment_used_final: segment
         }
       );
 
@@ -183,26 +181,24 @@ export class SearchService implements OnModuleDestroy {
     inputText: string,
     limit: number = 5,
     client: PoolClient,
-    segmentoPrecioDeseado?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO', 
+    segment?: 'premium' | 'standard' | 'economy', 
     originalQueryOverride?: string
   ) {
     const stepStartTime = process.hrtime.bigint();
     try {
       this.logger.log(
-        `Iniciando performSemanticSearch para: "${inputText}" con segmento de precio deseado: ${segmentoPrecioDeseado || 'cualquiera'}`,
+        `Iniciando performSemanticSearch para: "${inputText}" con segment: ${segment || 'any'}`,
         SearchService.name
       );
 
       // --- LOGGING DE CREACIÓN DE EMBEDDING ---
       const embeddingStart = process.hrtime.bigint();
       
-      // Configurar parámetros para el embedding
       const embeddingParams: any = { 
         model: this.embeddingModel, 
         input: inputText 
       };
 
-      // Para text-embedding-3-large y text-embedding-3-small, podemos especificar dimensiones
       if (this.embeddingModel.includes('text-embedding-3')) {
         embeddingParams.dimensions = this.vectorDimensions;
         this.logger.debug(
@@ -250,7 +246,6 @@ export class SearchService implements OnModuleDestroy {
         }
       }
 
-      // Validar dimensiones del embedding
       if (embedding.length !== this.vectorDimensions) {
         this.logger.error(
           `Dimensiones del embedding no coinciden. Esperado: ${this.vectorDimensions}, Recibido: ${embedding.length}`,
@@ -288,11 +283,21 @@ export class SearchService implements OnModuleDestroy {
         }
       );
 
-      // --- BÚSQUEDA VECTORIAL ---
+      // --- BÚSQUEDA VECTORIAL CON JOIN A MARCAS ---
       const vectorSearchStart = process.hrtime.bigint();
       const result = await Promise.race([
         client.query(
-          `SELECT codigo, descripcion, marca, segmento_precio, codfabrica, 1 - (embedding <=> $1::vector) AS similarity FROM ${this.productTable} ORDER BY embedding <=> $1::vector LIMIT $2`,
+          `SELECT 
+             p.codigo, 
+             p.descripcion, 
+             p.marca, 
+             COALESCE(m.segment, 'standard') as segment,
+             p.codfabrica, 
+             1 - (p.embedding <=> $1::vector) AS similarity 
+           FROM ${this.productTable} p
+           LEFT JOIN marcas m ON UPPER(p.marca) = UPPER(m.marca)
+           ORDER BY p.embedding <=> $1::vector 
+           LIMIT $2`,
           [vectorString, limit]
         ),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Vector search timeout')), 25000))
@@ -322,7 +327,7 @@ export class SearchService implements OnModuleDestroy {
         originalQueryOverride || inputText,
         result.rows,
         inputText,
-        segmentoPrecioDeseado,
+        segment,
         limit 
       );
       const gptSelectionEnd = process.hrtime.bigint();
@@ -332,7 +337,7 @@ export class SearchService implements OnModuleDestroy {
         {
           duration_ms: Number(gptSelectionEnd - gptSelectionStart) / 1_000_000,
           similitud_seleccionada: best.similitud,
-          segmento_precio_considerado_gpt: segmentoPrecioDeseado
+          segment_considered: segment
         }
       );
 
@@ -360,12 +365,11 @@ export class SearchService implements OnModuleDestroy {
     originalQuery: string,
     products: any[],
     normalizedQuery: string,
-    segmentoPrecioDeseado?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO',
+    segment?: 'premium' | 'standard' | 'economy',
     limit?: number
   ) {
     const stepStartTime = process.hrtime.bigint();
     
-    // Validación temprana de productos
     if (!products || products.length === 0) {
       this.logger.warn('No hay productos para procesar con GPT', SearchService.name);
       return { codigo: null, descripcion: null, similitud: "DISTINTO" };
@@ -373,17 +377,16 @@ export class SearchService implements OnModuleDestroy {
 
     try {
       this.logger.log(
-        `Iniciando selectBestProductWithGPT para: "${originalQuery}" con segmento de precio deseado: ${segmentoPrecioDeseado || 'cualquiera'}`,
+        `Iniciando selectBestProductWithGPT para: "${originalQuery}" con segment preference: ${segment || 'any'}`,
         SearchService.name,
         { productos_disponibles: products.length }
       );
 
       const productsForGPT = products.map((product, index) => {
-        // Validaciones defensivas
         const cleanText = (product.descripcion || '').trim();
         const productCode = (product.codigo || '').trim();
         const productMarca = (product.marca || 'N/A').trim();
-        const productSegmentoPrecio = (product.segmento_precio || 'ESTANDAR').trim();
+        const productSegment = (product.segment || 'standard').trim();
         const productCodFabrica = (product.codfabrica || '').trim();
 
         return {
@@ -391,7 +394,7 @@ export class SearchService implements OnModuleDestroy {
           codigo: productCode,
           text: cleanText,
           marca: productMarca,
-          segmento_precio: productSegmentoPrecio,
+          segment: productSegment,
           codfabrica: productCodFabrica,
           vectorSimilarity: Number(product.similarity || 0).toFixed(4)
         };
@@ -407,48 +410,49 @@ export class SearchService implements OnModuleDestroy {
         candidatos[`DA${candidateIndex}`] = products[i].descripcion || '';
       }
 
-      let instructionsForPriceSegment = '';
-      if (segmentoPrecioDeseado) {
-        instructionsForPriceSegment = `
-IMPORTANTE - PREFERENCIA DE SEGMENTO DE PRECIO:
-El usuario prefiere productos del segmento '${segmentoPrecioDeseado}'. 
-Orden de preferencia:
-${segmentoPrecioDeseado === 'PREMIUM' ? '1. PREMIUM 2. ESTANDAR 3. ECONOMICO' : 
-  segmentoPrecioDeseado === 'ESTANDAR' ? '1. ESTANDAR 2. PREMIUM 3. ECONOMICO' : 
-  '1. ECONOMICO 2. ESTANDAR 3. PREMIUM'}`;
+      let segmentInstructions = '';
+      if (segment) {
+        segmentInstructions = `
+IMPORTANT - SEGMENT PREFERENCE:
+User prefers products from '${segment}' segment. 
+When multiple products have similar functionality, prioritize in this order:
+${segment === 'premium' ? '1. premium 2. standard 3. economy' : 
+  segment === 'standard' ? '1. standard 2. premium 3. economy' : 
+  '1. economy 2. standard 3. premium'}
+
+Note: Each product's segment is determined by its brand classification.`;
       }
 
-      // Preparar prompt más robusto con mejor formato
       const productList = productsForGPT.map(p => 
-        `${p.index}. CÓDIGO: ${p.codigo} | DESCRIPCIÓN: "${p.text}" | MARCA: ${p.marca} | SEGMENTO: ${p.segmento_precio} | COD_FÁBRICA: ${p.codfabrica} | SIMILITUD: ${p.vectorSimilarity}`
+        `${p.index}. CODE: ${p.codigo} | DESCRIPTION: "${p.text}" | BRAND: ${p.marca} | SEGMENT: ${p.segment} | FACTORY_CODE: ${p.codfabrica} | SIMILARITY: ${p.vectorSimilarity}`
       ).join('\n');
 
-      const prompt = `Analiza los productos y selecciona el mejor match para la búsqueda del usuario.
+      const prompt = `Analyze products and select the best match for user's search.
 
-CONSULTA DEL USUARIO: "${originalQuery}"
+USER QUERY: "${originalQuery}"
 
-PRODUCTOS DISPONIBLES:
+AVAILABLE PRODUCTS:
 ${productList}
 
-${instructionsForPriceSegment}
+${segmentInstructions}
 
-ESCALA DE SIMILITUD:
-- EXACTO: Es exactamente lo que busca el usuario
-- EQUIVALENTE: Cumple la misma función con especificaciones similares
-- COMPATIBLE: Funciona para el mismo propósito
-- ALTERNATIVO: Puede servir pero con diferencias
-- DISTINTO: No es lo que busca
+SIMILARITY SCALE:
+- EXACTO: Exactly what user is looking for
+- EQUIVALENTE: Same function with similar specs
+- COMPATIBLE: Works for same purpose
+- ALTERNATIVO: Could work but with differences
+- DISTINTO: Not what user is looking for
 
-INSTRUCCIONES:
-1. Analiza cada producto considerando: marca, modelo, características, código de fábrica
-2. Selecciona SOLO UN producto (el mejor match)
-3. Considera la preferencia de segmento de precio si se especificó
-4. Responde ÚNICAMENTE con JSON válido:
+INSTRUCTIONS:
+1. Analyze each product considering: brand, model, features, factory code
+2. Select ONLY ONE product (best match)
+3. Consider segment preference if specified, but functionality match is still primary
+4. Respond ONLY with valid JSON:
 
 {
   "selectedIndex": 1,
   "similitud": "EXACTO",
-  "razon": "Explicación breve"
+  "razon": "Brief explanation"
 }`;
 
       this.logger.debug(
@@ -456,11 +460,12 @@ INSTRUCCIONES:
         SearchService.name,
         { 
           prompt_length: prompt.length,
-          productos_procesados: productsForGPT.length 
+          productos_procesados: productsForGPT.length,
+          segment_preference: segment 
         }
       );
 
-      // --- LLAMADA A GPT CON MEJOR MANEJO DE ERRORES ---
+      // --- LLAMADA A GPT ---
       const gptCallStart = process.hrtime.bigint();
       let gptResponse;
       
@@ -471,7 +476,7 @@ INSTRUCCIONES:
             messages: [
               {
                 role: "system",
-                content: "Eres un experto en análisis de productos industriales. SIEMPRE respondes con JSON válido y nada más."
+                content: "You are an expert in industrial product analysis. ALWAYS respond with valid JSON and nothing else."
               },
               {
                 role: "user",
@@ -480,7 +485,7 @@ INSTRUCCIONES:
             ],
             temperature: 0.1,
             max_tokens: 200,
-            response_format: { type: "json_object" } // Forzar respuesta JSON
+            response_format: { type: "json_object" }
           }),
           new Promise((_, reject) => 
             setTimeout(() => reject(new Error('GPT selection timeout after 15s')), 15000)
@@ -525,17 +530,15 @@ INSTRUCCIONES:
         throw new Error('GPT devolvió contenido vacío');
       }
 
-      // Parsear respuesta JSON con mejor manejo de errores
+      // Parsear respuesta JSON
       let gptDecision;
       try {
         gptDecision = JSON.parse(gptContent);
         
-        // Validar estructura del JSON
         if (!gptDecision.selectedIndex || !gptDecision.similitud) {
           throw new Error('JSON response missing required fields');
         }
         
-        // Validar valores
         const index = parseInt(gptDecision.selectedIndex);
         if (isNaN(index) || index < 1 || index > productsForGPT.length) {
           throw new Error(`Invalid selectedIndex: ${gptDecision.selectedIndex}`);
@@ -558,7 +561,6 @@ INSTRUCCIONES:
           }
         );
         
-        // Fallback con análisis de similitud vectorial
         gptDecision = {
           selectedIndex: 1,
           similitud: "ALTERNATIVO",
@@ -580,7 +582,9 @@ INSTRUCCIONES:
           duration_ms: totalStepTime,
           selected_similitud: gptDecision.similitud,
           selected_index: gptDecision.selectedIndex,
-          selected_codigo: selectedProduct.codigo
+          selected_codigo: selectedProduct.codigo,
+          selected_brand: selectedProduct.marca,
+          selected_segment: selectedProduct.segment
         }
       );
 
@@ -588,7 +592,9 @@ INSTRUCCIONES:
         codigo: selectedProduct.codigo,
         descripcion: selectedProduct.text,
         similitud: gptDecision.similitud,
-        razon: gptDecision.razon || 'Seleccionado por GPT',
+        razon: gptDecision.razon || 'Selected by GPT',
+        marca: selectedProduct.marca,
+        segment: selectedProduct.segment,
         ...candidatos
       };
 
@@ -613,6 +619,8 @@ INSTRUCCIONES:
         const firstProduct = products[0];
         const cleanText = (firstProduct.descripcion || '').trim();
         const productCode = (firstProduct.codigo || '').trim();
+        const productMarca = (firstProduct.marca || 'N/A').trim();
+        const productSegment = (firstProduct.segment || 'standard').trim();
 
         const candidatos = {};
         const maxCandidatos = limit || 5;
@@ -626,7 +634,11 @@ INSTRUCCIONES:
         this.logger.log(
           `Usando fallback: primer producto disponible`,
           SearchService.name,
-          { fallback_codigo: productCode }
+          { 
+            fallback_codigo: productCode,
+            fallback_marca: productMarca,
+            fallback_segment: productSegment 
+          }
         );
 
         return {
@@ -634,6 +646,8 @@ INSTRUCCIONES:
           descripcion: cleanText,
           similitud: "ALTERNATIVO",
           razon: `Fallback after GPT error: ${error.message}`,
+          marca: productMarca,
+          segment: productSegment,
           ...candidatos
         };
       } catch (fallbackError) {
@@ -647,7 +661,9 @@ INSTRUCCIONES:
           codigo: null,
           descripcion: null,
           similitud: "DISTINTO",
-          razon: `Critical error in product selection: ${error.message}`
+          razon: `Critical error in product selection: ${error.message}`,
+          marca: null,
+          segment: 'standard'
         };
       }
     }
