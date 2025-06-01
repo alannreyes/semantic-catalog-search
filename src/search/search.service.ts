@@ -11,6 +11,7 @@ export class SearchService implements OnModuleDestroy {
   private readonly probes: number;
   private readonly embeddingModel: string;
   private readonly productTable: string;
+  private readonly vectorDimensions: number; // Nueva propiedad
 
   constructor(
     private configService: ConfigService,
@@ -35,40 +36,56 @@ export class SearchService implements OnModuleDestroy {
     this.probes = parseInt(this.configService.get<string>('PGVECTOR_PROBES') || '1', 10);
     this.embeddingModel = this.configService.get<string>('OPENAI_MODEL') || 'text-embedding-3-large';
     this.productTable = this.configService.get<string>('PRODUCT_TABLE') || 'productos_1024';
+    
+    // Nueva configuración para dimensiones del vector
+    this.vectorDimensions = parseInt(
+      this.configService.get<string>('VECTOR_DIMENSIONS') || '1024', 
+      10
+    );
 
     this.logger.log(
-      `SearchService initialized with model=${this.embeddingModel}, probes=${this.probes}, table=${this.productTable}`,
+      `SearchService initialized with model=${this.embeddingModel}, probes=${this.probes}, table=${this.productTable}, dimensions=${this.vectorDimensions}`,
       SearchService.name
     );
+
+    // Validar que las dimensiones sean un número válido
+    if (this.vectorDimensions <= 0 || !Number.isInteger(this.vectorDimensions)) {
+      this.logger.error(
+        `Invalid vector dimensions: ${this.vectorDimensions}. Must be a positive integer.`,
+        null,
+        SearchService.name
+      );
+      throw new Error(`Invalid VECTOR_DIMENSIONS configuration: ${this.vectorDimensions}`);
+    }
   }
 
-async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO') {
-  const startTime = process.hrtime.bigint();
-  let client: PoolClient;
+  async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO') {
+    const startTime = process.hrtime.bigint();
+    let client: PoolClient;
 
-  this.logger.log(
-    `Iniciando búsqueda de productos.`,
-    SearchService.name,
-    { query_text: query, segmento_precio_deseado: segmentoPrecio } // Añade metadatos
-  );
+    this.logger.log(
+      `Iniciando búsqueda de productos.`,
+      SearchService.name,
+      { query_text: query, segmento_precio_deseado: segmentoPrecio }
+    );
 
     try {
       this.logger.log(
         `Buscando productos con query original: "${query}"`,
-        SearchService.name // <--- AÑADE EL CONTEXTO
+        SearchService.name
       );
 
       // --- LOGGING DE CONEXIÓN A DB ---
-      const clientConnectStart = process.hrtime.bigint(); // Inicio de medición
+      const clientConnectStart = process.hrtime.bigint();
       client = await Promise.race([
         this.pool.connect(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Database connection timeout')), 10000))
       ]) as any;
-      const clientConnectEnd = process.hrtime.bigint(); // Fin de medición
-      this.logger.debug( // <--- Usa 'debug' para logs detallados de rendimiento
+      const clientConnectEnd = process.hrtime.bigint();
+      this.logger.debug(
         `Conexión a DB obtenida.`,
         SearchService.name,
-        { duration_ms: Number(clientConnectEnd - clientConnectStart) / 1_000_000 } // <--- Calcula y envía la duración
+        { duration_ms: Number(clientConnectEnd - clientConnectStart) / 1_000_000 }
       );
 
       const initialSearchStart = process.hrtime.bigint();
@@ -87,7 +104,6 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
 
       if (["EXACTO", "EQUIVALENTE"].includes(initialResult.similitud)) {
         this.logger.log(`Similitud alta detectada (${initialResult.similitud}), no se requiere normalización.`, SearchService.name);
-        // Calcula el tiempo total incluso si no se normaliza
         const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
         this.logger.log(`Búsqueda completada (sin normalización).`, SearchService.name, { duration_ms: totalTime });
         return { ...initialResult, normalizado: null };
@@ -97,11 +113,11 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
 
       const normalizeStart = process.hrtime.bigint();
       const normalizedQuery = await Promise.race([
-        this.normalizeQueryWithGPT(query), // <--- CAMBIO AQUÍ: Llamar al nuevo método
+        this.normalizeQueryWithGPT(query),
         new Promise<string>((resolve) => setTimeout(() => {
           this.logger.warn('GPT query normalization timeout, using original query.', SearchService.name);
           resolve(query);
-        }, 30000)) // 30 segundos max para normalización con GPT
+        }, 30000))
       ]);
       const normalizeEnd = process.hrtime.bigint();
       this.logger.log(
@@ -138,7 +154,7 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
       this.logger.log(
         `Búsqueda de productos finalizada.`,
         SearchService.name,
-        { duration_ms: totalTime } // <--- Envía la duración total
+        { duration_ms: totalTime }
       );
 
       return {
@@ -150,15 +166,15 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
       const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
       this.logger.error(
         `Error en búsqueda general.`,
-        error.stack, // <--- El stack trace es el segundo argumento para error
+        error.stack,
         SearchService.name,
-        { duration_ms: totalTime, error_message: error.message } // <--- Envía metadatos detallados
+        { duration_ms: totalTime, error_message: error.message }
       );
       throw new Error(`Error en búsqueda semántica: ${error.message}`);
     } finally {
       if (client) {
         client.release();
-        this.logger.debug(`Conexión a DB liberada.`, SearchService.name); // <--- LOG de liberación
+        this.logger.debug(`Conexión a DB liberada.`, SearchService.name);
       }
     }
   }
@@ -170,26 +186,44 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
     segmentoPrecioDeseado?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO', 
     originalQueryOverride?: string
   ) {
-    const stepStartTime = process.hrtime.bigint(); // <--- INICIO DE MEDICIÓN PARA ESTE MÉTODO
+    const stepStartTime = process.hrtime.bigint();
     try {
-     this.logger.log(
-      `Iniciando performSemanticSearch para: "${inputText}" con segmento de precio deseado: ${segmentoPrecioDeseado || 'cualquiera'}`,
-      SearchService.name
+      this.logger.log(
+        `Iniciando performSemanticSearch para: "${inputText}" con segmento de precio deseado: ${segmentoPrecioDeseado || 'cualquiera'}`,
+        SearchService.name
       );
 
       // --- LOGGING DE CREACIÓN DE EMBEDDING ---
       const embeddingStart = process.hrtime.bigint();
+      
+      // Configurar parámetros para el embedding
+      const embeddingParams: any = { 
+        model: this.embeddingModel, 
+        input: inputText 
+      };
+
+      // Para text-embedding-3-large y text-embedding-3-small, podemos especificar dimensiones
+      if (this.embeddingModel.includes('text-embedding-3')) {
+        embeddingParams.dimensions = this.vectorDimensions;
+        this.logger.debug(
+          `Configurando embedding con dimensiones específicas: ${this.vectorDimensions}`,
+          SearchService.name
+        );
+      }
+
       const embeddingResponse = await Promise.race([
-        this.openai.embeddings.create({ model: this.embeddingModel, input: inputText }),
+        this.openai.embeddings.create(embeddingParams),
         new Promise((_, reject) => setTimeout(() => reject(new Error('OpenAI embedding timeout')), 30000))
       ]) as any;
+      
       const embeddingEnd = process.hrtime.bigint();
       this.logger.debug(
         `Embedding creado.`,
         SearchService.name,
         {
           duration_ms: Number(embeddingEnd - embeddingStart) / 1_000_000,
-          model: this.embeddingModel
+          model: this.embeddingModel,
+          dimensions_requested: this.vectorDimensions
         }
       );
 
@@ -215,6 +249,26 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
           throw new Error('Formato de embedding inválido');
         }
       }
+
+      // Validar dimensiones del embedding
+      if (embedding.length !== this.vectorDimensions) {
+        this.logger.error(
+          `Dimensiones del embedding no coinciden. Esperado: ${this.vectorDimensions}, Recibido: ${embedding.length}`,
+          null,
+          SearchService.name,
+          {
+            expected_dimensions: this.vectorDimensions,
+            received_dimensions: embedding.length,
+            model: this.embeddingModel
+          }
+        );
+        throw new Error(`Vector dimension mismatch: expected ${this.vectorDimensions}, got ${embedding.length}`);
+      }
+
+      this.logger.debug(
+        `Embedding validado correctamente con ${embedding.length} dimensiones`,
+        SearchService.name
+      );
 
       const vectorString = `[${embedding.join(',')}]`;
 
@@ -269,7 +323,7 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
         result.rows,
         inputText,
         segmentoPrecioDeseado,
-        limit // <--- AGREGAR EL PARÁMETRO limit
+        limit 
       );
       const gptSelectionEnd = process.hrtime.bigint();
       this.logger.log(
@@ -286,7 +340,7 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
       this.logger.log(
         `performSemanticSearch finalizado.`,
         SearchService.name,
-        { duration_ms: totalStepTime } // <--- DURACIÓN TOTAL DEL MÉTODO
+        { duration_ms: totalStepTime }
       );
       return best;
 
@@ -307,9 +361,9 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
     products: any[],
     normalizedQuery: string,
     segmentoPrecioDeseado?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO',
-    limit?: number // <--- NUEVO PARÁMETRO
+    limit?: number
   ) {
-    const stepStartTime = process.hrtime.bigint(); // <--- INICIO DE MEDICIÓN
+    const stepStartTime = process.hrtime.bigint();
     try {
       this.logger.log(
         `Iniciando selectBestProductWithGPT para: "${originalQuery}" con segmento de precio deseado: ${segmentoPrecioDeseado || 'cualquiera'}`,
@@ -321,7 +375,7 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
         const productCode = product.codigo || '';
         const productMarca = product.marca || 'N/A';
         const productSegmentoPrecio = product.segmento_precio || 'ESTANDAR';
-        const productCodFabrica = product.codfabrica || ''; // Handle NULL for codfabrica
+        const productCodFabrica = product.codfabrica || '';
 
         return {
           index: index + 1,
@@ -329,12 +383,11 @@ async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM
           text: cleanText,
           marca: productMarca,
           segmento_precio: productSegmentoPrecio,
-          codfabrica: productCodFabrica, // Include codfabrica
+          codfabrica: productCodFabrica,
           vectorSimilarity: product.similarity
         };
       });
 
-      // <--- NUEVO: Preparar candidatos por orden de similitud coseno
       const candidatos = {};
       const maxCandidatos = limit || 5;
       
@@ -460,13 +513,12 @@ ${instructionsForPriceSegment}
         }
       );
 
-      // <--- MODIFICADO: Retornar también los candidatos
       return {
         codigo: codigo,
         descripcion: description,
         similitud: gptDecision.similitud,
         razon: gptDecision.razon,
-        ...candidatos  // <--- SPREAD de los candidatos CA1, DA1, CA2, DA2, etc.
+        ...candidatos
       };
 
     } catch (error) {
@@ -482,7 +534,6 @@ ${instructionsForPriceSegment}
       const cleanText = firstProduct.descripcion || '';
       const productCode = firstProduct.codigo || '';
 
-      // <--- MODIFICADO: Incluir candidatos también en el fallback
       const candidatos = {};
       const maxCandidatos = limit || 5;
       
@@ -497,21 +548,19 @@ ${instructionsForPriceSegment}
         descripcion: cleanText,
         similitud: "ALTERNATIVO",
         razon: "Error al procesar selección GPT, se usó el primer resultado por defecto",
-        ...candidatos  // <--- SPREAD de los candidatos
+        ...candidatos
       };
     }
   }
 
-  // REEMPLAZO DE normalizeQueryWithWebSearch
   private async normalizeQueryWithGPT(query: string): Promise<string> {
-    const stepStartTime = process.hrtime.bigint(); // <--- INICIO DE MEDICIÓN
+    const stepStartTime = process.hrtime.bigint();
     try {
       this.logger.log(
         `Iniciando normalización de query con GPT-4o para: "${query}"`,
         SearchService.name
       );
 
-      // --- LLAMADA A GPT PARA NORMALIZACIÓN ---
       const gptNormalizationCallStart = process.hrtime.bigint();
       const response = await Promise.race([
         this.openai.chat.completions.create({
@@ -535,8 +584,8 @@ ${instructionsForPriceSegment}
               content: `Normaliza este query: "${query}"`
             }
           ],
-          temperature: 0.2, // Un poco más de creatividad para correcciones, pero aún enfocada
-          max_tokens: 100 // Suficiente para un nombre técnico
+          temperature: 0.2,
+          max_tokens: 100
         }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('GPT normalization timeout')), 25000))
       ]) as any;
@@ -553,13 +602,10 @@ ${instructionsForPriceSegment}
 
       let normalized = response.choices[0].message.content?.trim();
 
-      // Clean leading/trailing quotes just in case GPT adds them
       if (normalized && (normalized.startsWith('"') && normalized.endsWith('"'))) {
         normalized = normalized.slice(1, -1);
       }
-      // Ensure it's lowercase
       normalized = normalized?.toLowerCase() || query.toLowerCase();
-
 
       this.logger.log(
         `Query normalizada: "${normalized}"`,
@@ -587,13 +633,12 @@ ${instructionsForPriceSegment}
         { duration_ms: totalStepTime, error_message: error.message }
       );
       this.logger.warn(`Falló la normalización GPT, usando query original: "${query}"`, SearchService.name);
-      return query; // Fallback to original query on error
+      return query;
     }
   }
 
-  // Método para limpiar conexiones al cerrar la aplicación
   async onModuleDestroy() {
-    this.logger.log(`Cerrando pool de conexiones de PostgreSQL en SearchService.`, SearchService.name); // <--- LOG al cerrar
+    this.logger.log(`Cerrando pool de conexiones de PostgreSQL en SearchService.`, SearchService.name);
     await this.pool.end();
   }
 }
