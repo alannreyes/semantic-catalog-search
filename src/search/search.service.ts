@@ -410,22 +410,52 @@ export class SearchService implements OnModuleDestroy {
         candidatos[`DA${candidateIndex}`] = products[i].descripcion || '';
       }
 
+      // Aplicar boost de score por segmento preferido
+      if (segment) {
+        productsForGPT.forEach(product => {
+          let segmentBoost = 0;
+          if (product.segment === segment) {
+            segmentBoost = 0.15; // Boost del 15% para segmento preferido
+          } else if (
+            (segment === 'premium' && product.segment === 'standard') ||
+            (segment === 'economy' && product.segment === 'standard') ||
+            (segment === 'standard' && (product.segment === 'premium' || product.segment === 'economy'))
+          ) {
+            segmentBoost = 0.05; // Boost menor del 5% para segmentos compatibles
+          }
+          
+          const originalSimilarity = parseFloat(product.vectorSimilarity);
+          const boostedSimilarity = Math.min(1.0, originalSimilarity + segmentBoost);
+          product.adjustedSimilarity = boostedSimilarity.toFixed(4);
+          product.segmentBoost = segmentBoost.toFixed(3);
+        });
+
+        // Reordenar productos por similaridad ajustada
+        productsForGPT.sort((a, b) => parseFloat(b.adjustedSimilarity) - parseFloat(a.adjustedSimilarity));
+      }
+
       let segmentInstructions = '';
       if (segment) {
         segmentInstructions = `
-IMPORTANT - SEGMENT PREFERENCE:
-User prefers products from '${segment}' segment. 
-When multiple products have similar functionality, prioritize in this order:
-${segment === 'premium' ? '1. premium 2. standard 3. economy' : 
-  segment === 'standard' ? '1. standard 2. premium 3. economy' : 
-  '1. economy 2. standard 3. premium'}
+CRITICAL - SEGMENT PREFERENCE APPLIED:
+User specifically requested '${segment}' segment products.
+Products have been pre-scored with segment preference (shown as ADJUSTED_SIMILARITY).
 
-Note: Each product's segment is determined by its brand classification.`;
+Segment Priority Order:
+${segment === 'premium' ? '1. premium (+15% boost) 2. standard (+5% boost) 3. economy (no boost)' : 
+  segment === 'standard' ? '1. standard (+15% boost) 2. premium/economy (+5% boost)' : 
+  '1. economy (+15% boost) 2. standard (+5% boost) 3. premium (no boost)'}
+
+IMPORTANT: Consider the adjusted similarity scores - they already include segment preference.`;
       }
 
-      const productList = productsForGPT.map(p => 
-        `${p.index}. CODE: ${p.codigo} | DESCRIPTION: "${p.text}" | BRAND: ${p.marca} | SEGMENT: ${p.segment} | FACTORY_CODE: ${p.codfabrica} | SIMILARITY: ${p.vectorSimilarity}`
-      ).join('\n');
+      const productList = productsForGPT.map(p => {
+        const similarityDisplay = segment && p.adjustedSimilarity 
+          ? `SIMILARITY: ${p.vectorSimilarity} | ADJUSTED_SIMILARITY: ${p.adjustedSimilarity} (boost: +${p.segmentBoost})`
+          : `SIMILARITY: ${p.vectorSimilarity}`;
+        
+        return `${p.index}. CODE: ${p.codigo} | DESCRIPTION: "${p.text}" | BRAND: ${p.marca} | SEGMENT: ${p.segment} | FACTORY_CODE: ${p.codfabrica} | ${similarityDisplay}`;
+      }).join('\n');
 
       const prompt = `Analyze products and select the best match for user's search.
 
@@ -446,8 +476,9 @@ SIMILARITY SCALE:
 INSTRUCTIONS:
 1. Analyze each product considering: brand, model, features, factory code
 2. Select ONLY ONE product (best match)
-3. Consider segment preference if specified, but functionality match is still primary
-4. Respond ONLY with valid JSON:
+3. If segment preference was specified, PRIORITIZE the ADJUSTED_SIMILARITY scores
+4. The adjusted similarity already includes segment preference weighting
+5. Respond ONLY with valid JSON:
 
 {
   "selectedIndex": 1,
