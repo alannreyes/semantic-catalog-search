@@ -396,7 +396,9 @@ export class SearchService implements OnModuleDestroy {
           marca: productMarca,
           segment: productSegment,
           codfabrica: productCodFabrica,
-          vectorSimilarity: Number(product.similarity || 0).toFixed(4)
+          vectorSimilarity: Number(product.similarity || 0).toFixed(4),
+          adjustedSimilarity: undefined as string | undefined,
+          segmentBoost: undefined as string | undefined
         };
       });
 
