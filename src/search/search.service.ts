@@ -19,17 +19,17 @@ export class SearchService implements OnModuleDestroy {
     // Configuración optimizada del pool de conexiones
     this.pool = new Pool({
       connectionString: this.configService.get<string>('DATABASE_URL'),
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-      statement_timeout: 30000,
-      query_timeout: 30000,
+      max: 20, // Máximo 20 conexiones
+      idleTimeoutMillis: 30000, // 30 segundos
+      connectionTimeoutMillis: 10000, // 10 segundos timeout para conexión
+      statement_timeout: 30000, // 30 segundos timeout para queries
+      query_timeout: 30000, // 30 segundos timeout para queries
     });
 
     this.openai = new OpenAI({
       apiKey: this.configService.get<string>('OPENAI_API_KEY'),
-      timeout: 45000,
-      maxRetries: 2,
+      timeout: 45000, // 45 segundos timeout para OpenAI
+      maxRetries: 2, // Máximo 2 reintentos
     });
 
     this.probes = parseInt(this.configService.get<string>('PGVECTOR_PROBES') || '1', 10);
@@ -42,32 +42,33 @@ export class SearchService implements OnModuleDestroy {
     );
   }
 
-  async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO') {
-    const startTime = process.hrtime.bigint();
-    let client: PoolClient;
+async searchProducts(query: string, limit: number = 5, segmentoPrecio?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO') {
+  const startTime = process.hrtime.bigint();
+  let client: PoolClient;
 
-    this.logger.log(
-      `Iniciando búsqueda de productos.`,
-      SearchService.name,
-      { query_text: query, segmento_precio_deseado: segmentoPrecio }
-    );
+  this.logger.log(
+    `Iniciando búsqueda de productos.`,
+    SearchService.name,
+    { query_text: query, segmento_precio_deseado: segmentoPrecio } // Añade metadatos
+  );
 
     try {
       this.logger.log(
         `Buscando productos con query original: "${query}"`,
-        SearchService.name
+        SearchService.name // <--- AÑADE EL CONTEXTO
       );
 
-      const clientConnectStart = process.hrtime.bigint();
+      // --- LOGGING DE CONEXIÓN A DB ---
+      const clientConnectStart = process.hrtime.bigint(); // Inicio de medición
       client = await Promise.race([
         this.pool.connect(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Database connection timeout')), 10000))
       ]) as any;
-      const clientConnectEnd = process.hrtime.bigint();
-      this.logger.debug(
+      const clientConnectEnd = process.hrtime.bigint(); // Fin de medición
+      this.logger.debug( // <--- Usa 'debug' para logs detallados de rendimiento
         `Conexión a DB obtenida.`,
         SearchService.name,
-        { duration_ms: Number(clientConnectEnd - clientConnectStart) / 1_000_000 }
+        { duration_ms: Number(clientConnectEnd - clientConnectStart) / 1_000_000 } // <--- Calcula y envía la duración
       );
 
       const initialSearchStart = process.hrtime.bigint();
@@ -86,20 +87,21 @@ export class SearchService implements OnModuleDestroy {
 
       if (["EXACTO", "EQUIVALENTE"].includes(initialResult.similitud)) {
         this.logger.log(`Similitud alta detectada (${initialResult.similitud}), no se requiere normalización.`, SearchService.name);
+        // Calcula el tiempo total incluso si no se normaliza
         const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
         this.logger.log(`Búsqueda completada (sin normalización).`, SearchService.name, { duration_ms: totalTime });
         return { ...initialResult, normalizado: null };
       }
 
-      this.logger.log(`Similitud baja (${initialResult.similitud}), activando normalización de query con GPT-4.`, SearchService.name);
+      this.logger.log(`Similitud baja (${initialResult.similitud}), activando normalización de query con GPT-4o.`, SearchService.name);
 
       const normalizeStart = process.hrtime.bigint();
       const normalizedQuery = await Promise.race([
-        this.normalizeQueryWithGPT(query),
+        this.normalizeQueryWithGPT(query), // <--- CAMBIO AQUÍ: Llamar al nuevo método
         new Promise<string>((resolve) => setTimeout(() => {
           this.logger.warn('GPT query normalization timeout, using original query.', SearchService.name);
           resolve(query);
-        }, 30000))
+        }, 30000)) // 30 segundos max para normalización con GPT
       ]);
       const normalizeEnd = process.hrtime.bigint();
       this.logger.log(
@@ -136,7 +138,7 @@ export class SearchService implements OnModuleDestroy {
       this.logger.log(
         `Búsqueda de productos finalizada.`,
         SearchService.name,
-        { duration_ms: totalTime }
+        { duration_ms: totalTime } // <--- Envía la duración total
       );
 
       return {
@@ -148,15 +150,15 @@ export class SearchService implements OnModuleDestroy {
       const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
       this.logger.error(
         `Error en búsqueda general.`,
-        error.stack,
+        error.stack, // <--- El stack trace es el segundo argumento para error
         SearchService.name,
-        { duration_ms: totalTime, error_message: error.message }
+        { duration_ms: totalTime, error_message: error.message } // <--- Envía metadatos detallados
       );
       throw new Error(`Error en búsqueda semántica: ${error.message}`);
     } finally {
       if (client) {
         client.release();
-        this.logger.debug(`Conexión a DB liberada.`, SearchService.name);
+        this.logger.debug(`Conexión a DB liberada.`, SearchService.name); // <--- LOG de liberación
       }
     }
   }
@@ -168,20 +170,17 @@ export class SearchService implements OnModuleDestroy {
     segmentoPrecioDeseado?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO', 
     originalQueryOverride?: string
   ) {
-    const stepStartTime = process.hrtime.bigint();
+    const stepStartTime = process.hrtime.bigint(); // <--- INICIO DE MEDICIÓN PARA ESTE MÉTODO
     try {
-      this.logger.log(
-        `Iniciando performSemanticSearch para: "${inputText}" con segmento de precio deseado: ${segmentoPrecioDeseado || 'cualquiera'}`,
-        SearchService.name
+     this.logger.log(
+      `Iniciando performSemanticSearch para: "${inputText}" con segmento de precio deseado: ${segmentoPrecioDeseado || 'cualquiera'}`,
+      SearchService.name
       );
 
+      // --- LOGGING DE CREACIÓN DE EMBEDDING ---
       const embeddingStart = process.hrtime.bigint();
       const embeddingResponse = await Promise.race([
-        this.openai.embeddings.create({ 
-          model: this.embeddingModel, 
-          input: inputText, 
-          dimensions: 1024 
-        }),
+        this.openai.embeddings.create({ model: this.embeddingModel, input: inputText }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('OpenAI embedding timeout')), 30000))
       ]) as any;
       const embeddingEnd = process.hrtime.bigint();
@@ -219,6 +218,7 @@ export class SearchService implements OnModuleDestroy {
 
       const vectorString = `[${embedding.join(',')}]`;
 
+      // --- LOGGING DE CONFIGURACIÓN DE PROBES ---
       const setProbesStart = process.hrtime.bigint();
       await Promise.race([
         client.query(`SET ivfflat.probes = ${this.probes}`),
@@ -234,6 +234,7 @@ export class SearchService implements OnModuleDestroy {
         }
       );
 
+      // --- BÚSQUEDA VECTORIAL ---
       const vectorSearchStart = process.hrtime.bigint();
       const result = await Promise.race([
         client.query(
@@ -258,23 +259,17 @@ export class SearchService implements OnModuleDestroy {
       );
 
       if (result.rows.length === 0) {
-        return {
-          codigo: null,
-          marca: null,
-          segmento_precio: null,
-          codfabrica: null,
-          descripcion: null,
-          similitud: "DISTINTO",
-          razon: "No se encontraron productos similares en la base de datos"
-        };
+        return { codigo: null, descripcion: null, similitud: "DISTINTO" };
       }
 
+      // --- SELECCIÓN GPT ---
       const gptSelectionStart = process.hrtime.bigint();
       const best = await this.selectBestProductWithGPT(
         originalQueryOverride || inputText,
         result.rows,
         inputText,
-        segmentoPrecioDeseado
+        segmentoPrecioDeseado,
+        limit // <--- AGREGAR EL PARÁMETRO limit
       );
       const gptSelectionEnd = process.hrtime.bigint();
       this.logger.log(
@@ -291,7 +286,7 @@ export class SearchService implements OnModuleDestroy {
       this.logger.log(
         `performSemanticSearch finalizado.`,
         SearchService.name,
-        { duration_ms: totalStepTime }
+        { duration_ms: totalStepTime } // <--- DURACIÓN TOTAL DEL MÉTODO
       );
       return best;
 
@@ -311,9 +306,10 @@ export class SearchService implements OnModuleDestroy {
     originalQuery: string,
     products: any[],
     normalizedQuery: string,
-    segmentoPrecioDeseado?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO' 
+    segmentoPrecioDeseado?: 'PREMIUM' | 'ESTANDAR' | 'ECONOMICO',
+    limit?: number // <--- NUEVO PARÁMETRO
   ) {
-    const stepStartTime = process.hrtime.bigint();
+    const stepStartTime = process.hrtime.bigint(); // <--- INICIO DE MEDICIÓN
     try {
       this.logger.log(
         `Iniciando selectBestProductWithGPT para: "${originalQuery}" con segmento de precio deseado: ${segmentoPrecioDeseado || 'cualquiera'}`,
@@ -325,7 +321,7 @@ export class SearchService implements OnModuleDestroy {
         const productCode = product.codigo || '';
         const productMarca = product.marca || 'N/A';
         const productSegmentoPrecio = product.segmento_precio || 'ESTANDAR';
-        const productCodFabrica = product.codfabrica || '';
+        const productCodFabrica = product.codfabrica || ''; // Handle NULL for codfabrica
 
         return {
           index: index + 1,
@@ -333,10 +329,20 @@ export class SearchService implements OnModuleDestroy {
           text: cleanText,
           marca: productMarca,
           segmento_precio: productSegmentoPrecio,
-          codfabrica: productCodFabrica,
+          codfabrica: productCodFabrica, // Include codfabrica
           vectorSimilarity: product.similarity
         };
       });
+
+      // <--- NUEVO: Preparar candidatos por orden de similitud coseno
+      const candidatos = {};
+      const maxCandidatos = limit || 5;
+      
+      for (let i = 0; i < Math.min(products.length, maxCandidatos); i++) {
+        const candidateIndex = i + 1;
+        candidatos[`CA${candidateIndex}`] = products[i].codigo || '';
+        candidatos[`DA${candidateIndex}`] = products[i].descripcion || '';
+      }
 
       let instructionsForPriceSegment = '';
       if (segmentoPrecioDeseado) {
@@ -376,10 +382,11 @@ ${instructionsForPriceSegment}
   "razon": "[explicación breve de por qué es el mejor match]"
 }`;
 
+      // --- LLAMADA A GPT ---
       const gptCallStart = process.hrtime.bigint();
       const gptResponse = await Promise.race([
         this.openai.chat.completions.create({
-          model: "gpt-4o", // CAMBIO CRÍTICO: usar gpt-4o en lugar de gpt-4.1
+          model: "gpt-4o",
           messages: [
             {
               role: "system",
@@ -408,29 +415,22 @@ ${instructionsForPriceSegment}
 
       const gptContent = gptResponse.choices[0].message.content?.trim();
       this.logger.log(
-        `Contenido CRUDO de GPT para selectBestProduct: -----\n${gptContent}\n-----`, 
-        SearchService.name
-      );
-      this.logger.log(
-        `GPT response recibido (para selectBestProduct).`, 
-        SearchService.name, 
+        `GPT response recibido.`,
+        SearchService.name,
         { content_length: gptContent?.length || 0 }
       );
 
       if (!gptContent) {
-        this.logger.error('GPT (selectBestProduct) no devolvió contenido (null o vacío).', SearchService.name);
-        throw new Error('GPT no devolvió contenido válido para selectBestProduct');
+        throw new Error('GPT no devolvió contenido válido');
       }
 
       let gptDecision;
       try {
-        // Limpiar posibles caracteres extra antes y después del JSON
-        const cleanContent = gptContent.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
-        gptDecision = JSON.parse(cleanContent);
+        gptDecision = JSON.parse(gptContent);
       } catch (error) {
         this.logger.error(
-          `Error al parsear JSON de GPT (selectBestProduct): ${error.message}. Contenido crudo que intentó parsear: >>>${gptContent}<<<`, 
-          error.stack, 
+          `Error parsing GPT response: ${error.message}`,
+          error.stack,
           SearchService.name
         );
         gptDecision = {
@@ -460,14 +460,13 @@ ${instructionsForPriceSegment}
         }
       );
 
+      // <--- MODIFICADO: Retornar también los candidatos
       return {
         codigo: codigo,
-        marca: selectedProduct.marca,
-        segmento_precio: selectedProduct.segmento_precio,
-        codfabrica: selectedProduct.codfabrica, 
         descripcion: description,
         similitud: gptDecision.similitud,
-        razon: gptDecision.razon
+        razon: gptDecision.razon,
+        ...candidatos  // <--- SPREAD de los candidatos CA1, DA1, CA2, DA2, etc.
       };
 
     } catch (error) {
@@ -483,51 +482,61 @@ ${instructionsForPriceSegment}
       const cleanText = firstProduct.descripcion || '';
       const productCode = firstProduct.codigo || '';
 
+      // <--- MODIFICADO: Incluir candidatos también en el fallback
+      const candidatos = {};
+      const maxCandidatos = limit || 5;
+      
+      for (let i = 0; i < Math.min(products.length, maxCandidatos); i++) {
+        const candidateIndex = i + 1;
+        candidatos[`CA${candidateIndex}`] = products[i].codigo || '';
+        candidatos[`DA${candidateIndex}`] = products[i].descripcion || '';
+      }
+
       return {
         codigo: productCode,
-        marca: firstProduct.marca || null,
-        segmento_precio: firstProduct.segmento_precio || null,
-        codfabrica: firstProduct.codfabrica || null,
         descripcion: cleanText,
         similitud: "ALTERNATIVO",
-        razon: "Error al procesar selección GPT, se usó el primer resultado por defecto"
+        razon: "Error al procesar selección GPT, se usó el primer resultado por defecto",
+        ...candidatos  // <--- SPREAD de los candidatos
       };
     }
   }
 
+  // REEMPLAZO DE normalizeQueryWithWebSearch
   private async normalizeQueryWithGPT(query: string): Promise<string> {
-    const stepStartTime = process.hrtime.bigint();
+    const stepStartTime = process.hrtime.bigint(); // <--- INICIO DE MEDICIÓN
     try {
       this.logger.log(
         `Iniciando normalización de query con GPT-4o para: "${query}"`,
         SearchService.name
       );
 
+      // --- LLAMADA A GPT PARA NORMALIZACIÓN ---
       const gptNormalizationCallStart = process.hrtime.bigint();
       const response = await Promise.race([
         this.openai.chat.completions.create({
-          model: "gpt-4o", // CAMBIO CRÍTICO: usar gpt-4o en lugar de gpt-4.1
+          model: "gpt-4o",
           messages: [
             {
               role: "system",
               content: `Tu tarea es encontrar el nombre técnico más preciso a partir del query del usuario. Debes devolver SÓLO el nombre técnico, sin explicaciones ni texto adicional. Incluye marca, tipo, modelo, color, tamaño, o presentación si son relevantes y están implícitos en el query. Corrige posibles errores ortográficos, contracciones o modismos. Asegúrate de que la respuesta sea en minúsculas y sin comillas al inicio o al final.
 
-Ejemplos:
-"pintura blanca 5 gal sherwin" => pintura sherwin-williams blanca 5 galones
-"guantes de corte nivel 5 m" => guantes anticorte nivel 5 talla m
-"silicona teka transparente 280ml" => silicona neutra transparente teka 280ml
-"brocha tumi 2" => brocha de nylon tumi 2 pulgadas
-"tubo pvc 1/2 agua fria" => tubo pvc presión 1/2 pulgada agua fría
-"martillo stanley uña" => martillo de uña stanley
-"llave francesa 10" => llave ajustable 10 pulgadas`
+              Ejemplos:
+              "pintura blanca 5 gal sherwin" => pintura sherwin-williams blanca 5 galones
+              "guantes de corte nivel 5 m" => guantes anticorte nivel 5 talla m
+              "silicona teka transparente 280ml" => silicona neutra transparente teka 280ml
+              "brocha tumi 2" => brocha de nylon tumi 2 pulgadas
+              "tubo pvc 1/2 agua fria" => tubo pvc presión 1/2 pulgada agua fría
+              "martillo stanley uña" => martillo de uña stanley
+              "llave francesa 10" => llave ajustable 10 pulgadas`
             },
             {
               role: "user",
               content: `Normaliza este query: "${query}"`
             }
           ],
-          temperature: 0.2,
-          max_tokens: 100
+          temperature: 0.2, // Un poco más de creatividad para correcciones, pero aún enfocada
+          max_tokens: 100 // Suficiente para un nombre técnico
         }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('GPT normalization timeout')), 25000))
       ]) as any;
@@ -544,21 +553,13 @@ Ejemplos:
 
       let normalized = response.choices[0].message.content?.trim();
 
-      if (!normalized) {
-        this.logger.warn('GPT normalization returned empty content, using original query', SearchService.name);
-        return query.toLowerCase();
-      }
-
       // Clean leading/trailing quotes just in case GPT adds them
-      if (normalized.startsWith('"') && normalized.endsWith('"')) {
+      if (normalized && (normalized.startsWith('"') && normalized.endsWith('"'))) {
         normalized = normalized.slice(1, -1);
       }
-      
-      // Clean markdown code blocks if present
-      normalized = normalized.replace(/^```[\w]*\s*/, '').replace(/\s*```$/, '');
-      
       // Ensure it's lowercase
-      normalized = normalized.toLowerCase();
+      normalized = normalized?.toLowerCase() || query.toLowerCase();
+
 
       this.logger.log(
         `Query normalizada: "${normalized}"`,
@@ -586,12 +587,13 @@ Ejemplos:
         { duration_ms: totalStepTime, error_message: error.message }
       );
       this.logger.warn(`Falló la normalización GPT, usando query original: "${query}"`, SearchService.name);
-      return query.toLowerCase();
+      return query; // Fallback to original query on error
     }
   }
 
+  // Método para limpiar conexiones al cerrar la aplicación
   async onModuleDestroy() {
-    this.logger.log(`Cerrando pool de conexiones de PostgreSQL en SearchService.`, SearchService.name);
+    this.logger.log(`Cerrando pool de conexiones de PostgreSQL en SearchService.`, SearchService.name); // <--- LOG al cerrar
     await this.pool.end();
   }
 }
