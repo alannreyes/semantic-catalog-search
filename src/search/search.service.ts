@@ -2,15 +2,15 @@
       // Estructura los productos en formato optimizado para el análisis de GPT      // --- VALIDACIÓN Y CONVERSIÓN DEL EMBEDDING ---
       // Asegura que el embedding esté en formato correcto y tenga las dimensiones esperadas      // --- BÚSQUEDA CON QUERY NORMALIZADO ---
       // Segunda búsqueda usando el query mejorado por GPT-4o      // --- BÚSQUEDA SEMÁNTICA INICIAL ---
-      // Primera búsqueda con el query original para evaluar si necesita normalización/*
- * SearchService - Servicio de busqueda semantica con inteligencia artificial
- * 
- * Implementa busqueda vectorial usando OpenAI embeddings y PostgreSQL con pgvector,
- * incluye sistema de boost por segmento de marca y seleccion inteligente con GPT-4o.
- * 
- * Autor: Alann Reyes (asistido por Claude Sonnet 4)
- * Fecha: 2 de Junio, 2025
- */
+      // Primera búsqueda con el query original para evaluar si necesita normalización//
+// SearchService - Servicio de busqueda semantica con inteligencia artificial
+// 
+// Implementa busqueda vectorial usando OpenAI embeddings y PostgreSQL con pgvector,
+// incluye sistema de boost por segmento de marca y seleccion inteligente con GPT-4o.
+// 
+// Autor: Alann Reyes (asistido por Claude Sonnet 4)
+// Fecha: 2 de Junio, 2025
+//
 
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -71,12 +71,9 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
-  /*
-   * Metodo principal de busqueda semantica de productos
-   * 
-   * Coordina todo el proceso: embedding del query, busqueda vectorial, boost por segmento,
-   * seleccion con GPT-4o y normalizacion automatica si la similaridad es baja.
-   */
+  // Metodo principal de busqueda semantica de productos
+  // Coordina todo el proceso: embedding del query, busqueda vectorial, boost por segmento,
+  // seleccion con GPT-4o y normalizacion automatica si la similaridad es baja.
   async searchProducts(query: string, limit: number = 5, segment?: 'premium' | 'standard' | 'economy') {
     const startTime = process.hrtime.bigint();
     let client: PoolClient;
@@ -214,12 +211,9 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
-  /*
-   * Ejecuta la busqueda semantica vectorial y seleccion inteligente
-   * 
-   * Convierte texto a embedding, busca vectores similares en PostgreSQL,
-   * aplica boost por segmento de marca y usa GPT-4o para seleccionar el mejor resultado.
-   */
+  // Ejecuta la busqueda semantica vectorial y seleccion inteligente
+  // Convierte texto a embedding, busca vectores similares en PostgreSQL,
+  // aplica boost por segmento de marca y usa GPT-4o para seleccionar el mejor resultado.
   private async performSemanticSearch(
     inputText: string,
     limit: number = 5,
@@ -436,12 +430,9 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
-  /*
-   * Aplica inteligencia artificial para seleccionar el mejor producto
-   * 
-   * Analiza productos candidatos, aplica boost por segmento de marca,
-   * y usa GPT-4o para tomar la decision final considerando contexto y preferencias del usuario.
-   */
+  // Aplica inteligencia artificial para seleccionar el mejor producto
+  // Analiza productos candidatos, aplica boost por segmento de marca,
+  // y usa GPT-4o para tomar la decision final considerando contexto y preferencias del usuario.
   private async selectBestProductWithGPT(
     originalQuery: string,
     products: any[],
@@ -796,12 +787,9 @@ INSTRUCCIONES:
     }
   }
 
-  /*
-   * Normaliza queries de usuario usando GPT-4o para mejorar busquedas
-   * 
-   * Corrige errores ortograficos, expande abreviaciones y mejora la especificidad
-   * del texto de busqueda para obtener mejores resultados vectoriales.
-   */
+  // Normaliza queries de usuario usando GPT-4o para mejorar busquedas
+  // Corrige errores ortograficos, expande abreviaciones y mejora la especificidad
+  // del texto de busqueda para obtener mejores resultados vectoriales.
   private async normalizeQueryWithGPT(query: string): Promise<string> {
     const stepStartTime = process.hrtime.bigint();
     try {
