@@ -482,7 +482,7 @@ export class SearchService implements OnModuleDestroy {
         productsForGPT.forEach(product => {
           let segmentMultiplier = 1.0;
           if (product.segment === segment) {
-            segmentMultiplier = 2.0; // Boost multiplicativo del 100% para segmento preferido
+            segmentMultiplier = 1.3; // Boost moderado del 30% para segmento preferido
           } else if (
             (segment === 'premium' && product.segment === 'standard') ||
             (segment === 'economy' && product.segment === 'standard') ||
@@ -526,9 +526,9 @@ export class SearchService implements OnModuleDestroy {
 IMPORTANTE - PREFERENCIA DE SEGMENTO:
 El usuario solicitó específicamente productos del segmento '${segment}'. 
 Orden de preferencia:
-${segment === 'premium' ? '1. premium (+100% boost) 2. standard (+20% boost) 3. economy (sin boost)' : 
-  segment === 'standard' ? '1. standard (+100% boost) 2. premium/economy (+20% boost)' : 
-  '1. economy (+100% boost) 2. standard (+20% boost) 3. premium (sin boost)'}
+${segment === 'premium' ? '1. premium (+30% boost) 2. standard (+20% boost) 3. economy (sin boost)' : 
+  segment === 'standard' ? '1. standard (+30% boost) 2. premium/economy (+20% boost)' : 
+  '1. economy (+30% boost) 2. standard (+20% boost) 3. premium (sin boost)'}
 
 IMPORTANTE: Considera las puntuaciones ADJUSTED_SIMILARITY - ya incluyen la preferencia de segmento.`;
       }
