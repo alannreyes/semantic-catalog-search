@@ -104,16 +104,11 @@ export class SearchService implements OnModuleDestroy {
         this.logger.log(`Similitud alta detectada (${initialResult.similitud}), no se requiere normalización.`, SearchService.name);
         const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
         this.logger.log(`Búsqueda completada (sin normalización).`, SearchService.name, { duration_ms: totalTime });
-      return {
-        ...best,
-        normalizado: null,
-        timings: {
-          embedding_time_ms: Number(embeddingEnd - embeddingStart) / 1_000_000,
-          vector_search_time_ms: Number(vectorSearchEnd - vectorSearchStart) / 1_000_000,
-          gpt_selection_time_ms: Number(gptSelectionEnd - gptSelectionStart) / 1_000_000,
-          total_search_time_ms: Number(process.hrtime.bigint() - startTime) / 1_000_000
-        }
-      };
+        return { 
+          ...initialResult, 
+          normalizado: null,
+          total_time_ms: totalTime
+        };
       }
 
       this.logger.log(`Similitud baja (${initialResult.similitud}), activando normalización de query con GPT-4o.`, SearchService.name);
@@ -167,11 +162,7 @@ export class SearchService implements OnModuleDestroy {
       return {
         ...resultAfterNormalization,
         normalizado: normalizedQuery,
-        timings: {
-          ...(resultAfterNormalization.timings || {}),
-          normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
-          total_search_time_ms: totalTime
-        }
+        total_time_ms: totalTime
       };
 
     } catch (error) {
@@ -362,17 +353,7 @@ export class SearchService implements OnModuleDestroy {
         SearchService.name,
         { duration_ms: totalStepTime }
       );
-      
-      // Agregar timings detallados al resultado
-      return {
-        ...best,
-        timings: {
-          embedding_time_ms: Number(embeddingEnd - embeddingStart) / 1_000_000,
-          vector_search_time_ms: Number(vectorSearchEnd - vectorSearchStart) / 1_000_000,
-          gpt_selection_time_ms: Number(gptSelectionEnd - gptSelectionStart) / 1_000_000,
-          step_total_time_ms: totalStepTime
-        }
-      };
+      return best;
 
     } catch (error) {
       const totalStepTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
@@ -427,16 +408,6 @@ export class SearchService implements OnModuleDestroy {
         };
       });
 
-      // Preparar candidatos
-      const candidatos = {};
-      const maxCandidatos = limit || 5;
-      
-      for (let i = 0; i < Math.min(products.length, maxCandidatos); i++) {
-        const candidateIndex = i + 1;
-        candidatos[`CA${candidateIndex}`] = products[i].codigo || '';
-        candidatos[`DA${candidateIndex}`] = products[i].descripcion || '';
-      }
-
       // Aplicar boost de score por segmento preferido
       if (segment) {
         this.logger.log(`APLICANDO BOOST PARA SEGMENTO: ${segment}`, SearchService.name);
@@ -470,6 +441,16 @@ export class SearchService implements OnModuleDestroy {
           const bScore = parseFloat(b.adjustedSimilarity || b.vectorSimilarity);
           return bScore - aScore;
         });
+      }
+
+      // Preparar candidatos
+      const candidatos = {};
+      const maxCandidatos = limit || 5;
+      
+      for (let i = 0; i < Math.min(products.length, maxCandidatos); i++) {
+        const candidateIndex = i + 1;
+        candidatos[`CA${candidateIndex}`] = products[i].codigo || '';
+        candidatos[`DA${candidateIndex}`] = products[i].descripcion || '';
       }
 
       let segmentInstructions = '';
