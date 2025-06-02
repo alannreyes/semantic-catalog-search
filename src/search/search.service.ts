@@ -414,22 +414,29 @@ export class SearchService implements OnModuleDestroy {
 
       // Aplicar boost de score por segmento preferido
       if (segment) {
+        this.logger.log(`APLICANDO BOOST PARA SEGMENTO: ${segment}`, SearchService.name);
+        
         productsForGPT.forEach(product => {
           let segmentMultiplier = 1.0;
           if (product.segment === segment) {
-            segmentMultiplier = 1.4; // Boost multiplicativo del 40% para segmento preferido
+            segmentMultiplier = 2.0; // Boost multiplicativo del 100% para segmento preferido
           } else if (
             (segment === 'premium' && product.segment === 'standard') ||
             (segment === 'economy' && product.segment === 'standard') ||
             (segment === 'standard' && (product.segment === 'premium' || product.segment === 'economy'))
           ) {
-            segmentMultiplier = 1.15; // Boost del 15% para segmentos compatibles
+            segmentMultiplier = 1.2; // Boost del 20% para segmentos compatibles
           }
           
           const originalSimilarity = parseFloat(product.vectorSimilarity);
           const boostedSimilarity = Math.min(1.0, originalSimilarity * segmentMultiplier);
           product.adjustedSimilarity = boostedSimilarity.toFixed(4);
           product.segmentBoost = ((segmentMultiplier - 1.0) * 100).toFixed(1) + '%';
+          
+          this.logger.log(
+            `BOOST APLICADO: ${product.marca} (${product.segment}) - Original: ${originalSimilarity} -> Boosted: ${boostedSimilarity} (x${segmentMultiplier})`,
+            SearchService.name
+          );
         });
 
         // Reordenar productos por similaridad ajustada
