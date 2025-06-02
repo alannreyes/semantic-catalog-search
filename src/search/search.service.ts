@@ -2,14 +2,14 @@
       // Estructura los productos en formato optimizado para el análisis de GPT      // --- VALIDACIÓN Y CONVERSIÓN DEL EMBEDDING ---
       // Asegura que el embedding esté en formato correcto y tenga las dimensiones esperadas      // --- BÚSQUEDA CON QUERY NORMALIZADO ---
       // Segunda búsqueda usando el query mejorado por GPT-4o      // --- BÚSQUEDA SEMÁNTICA INICIAL ---
-      // Primera búsqueda con el query original para evaluar si necesita normalización/**
+      // Primera búsqueda con el query original para evaluar si necesita normalización/*
  * SearchService - Servicio de busqueda semantica con inteligencia artificial
  * 
  * Implementa busqueda vectorial usando OpenAI embeddings y PostgreSQL con pgvector,
  * incluye sistema de boost por segmento de marca y seleccion inteligente con GPT-4o.
  * 
- * @author Alann Reyes (asistido por Claude Sonnet 4)
- * @date 2 de Junio, 2025
+ * Autor: Alann Reyes (asistido por Claude Sonnet 4)
+ * Fecha: 2 de Junio, 2025
  */
 
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
@@ -71,7 +71,7 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
-  /**
+  /*
    * Metodo principal de busqueda semantica de productos
    * 
    * Coordina todo el proceso: embedding del query, busqueda vectorial, boost por segmento,
@@ -214,7 +214,7 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
-  /**
+  /*
    * Ejecuta la busqueda semantica vectorial y seleccion inteligente
    * 
    * Convierte texto a embedding, busca vectores similares en PostgreSQL,
@@ -436,7 +436,7 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
-  /**
+  /*
    * Aplica inteligencia artificial para seleccionar el mejor producto
    * 
    * Analiza productos candidatos, aplica boost por segmento de marca,
@@ -796,7 +796,7 @@ INSTRUCCIONES:
     }
   }
 
-  /**
+  /*
    * Normaliza queries de usuario usando GPT-4o para mejorar busquedas
    * 
    * Corrige errores ortograficos, expande abreviaciones y mejora la especificidad
