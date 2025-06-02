@@ -64,7 +64,7 @@ export class SearchService implements OnModuleDestroy {
     this.logger.log(
       `Iniciando búsqueda de productos.`,
       SearchService.name,
-      { query_text: query, segment_filter: segment }
+      { query_text: query, segment_filter: segment, segment_received: !!segment, segment_value: segment || 'NONE' }
     );
 
     try {
@@ -188,7 +188,8 @@ export class SearchService implements OnModuleDestroy {
     try {
       this.logger.log(
         `Iniciando performSemanticSearch para: "${inputText}" con segment: ${segment || 'any'}`,
-        SearchService.name
+        SearchService.name,
+        { segment_param: segment, segment_defined: !!segment }
       );
 
       // --- LOGGING DE CREACIÓN DE EMBEDDING ---
@@ -379,7 +380,7 @@ export class SearchService implements OnModuleDestroy {
       this.logger.log(
         `Iniciando selectBestProductWithGPT para: "${originalQuery}" con segment preference: ${segment || 'any'}`,
         SearchService.name,
-        { productos_disponibles: products.length }
+        { productos_disponibles: products.length, segment_param_received: segment, segment_type: typeof segment }
       );
 
       const productsForGPT = products.map((product, index) => {
