@@ -107,7 +107,10 @@ export class SearchService implements OnModuleDestroy {
         return { 
           ...initialResult, 
           normalizado: null,
-          total_time_ms: totalTime
+          timings: {
+            ...initialResult.timings,
+            total_time_ms: totalTime
+          }
         };
       }
 
@@ -162,7 +165,11 @@ export class SearchService implements OnModuleDestroy {
       return {
         ...resultAfterNormalization,
         normalizado: normalizedQuery,
-        total_time_ms: totalTime
+        timings: {
+          ...resultAfterNormalization.timings,
+          normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
+          total_time_ms: totalTime
+        }
       };
 
     } catch (error) {
@@ -190,6 +197,12 @@ export class SearchService implements OnModuleDestroy {
     originalQueryOverride?: string
   ) {
     const stepStartTime = process.hrtime.bigint();
+    
+    // Variables para timings
+    let embeddingTime = 0;
+    let vectorSearchTime = 0;
+    let gptSelectionTime = 0;
+    
     try {
       this.logger.log(
         `Iniciando performSemanticSearch para: "${inputText}" con segment: ${segment || 'any'}`,
@@ -219,6 +232,7 @@ export class SearchService implements OnModuleDestroy {
       ]) as any;
       
       const embeddingEnd = process.hrtime.bigint();
+      embeddingTime = Number(embeddingEnd - embeddingStart) / 1_000_000;
       this.logger.debug(
         `Embedding creado.`,
         SearchService.name,
@@ -309,6 +323,7 @@ export class SearchService implements OnModuleDestroy {
         new Promise((_, reject) => setTimeout(() => reject(new Error('Vector search timeout')), 25000))
       ]) as any;
       const vectorSearchEnd = process.hrtime.bigint();
+      vectorSearchTime = Number(vectorSearchEnd - vectorSearchStart) / 1_000_000;
       this.logger.log(
         `Búsqueda vectorial completada.`,
         SearchService.name,
@@ -337,6 +352,7 @@ export class SearchService implements OnModuleDestroy {
         limit 
       );
       const gptSelectionEnd = process.hrtime.bigint();
+      gptSelectionTime = Number(gptSelectionEnd - gptSelectionStart) / 1_000_000;
       this.logger.log(
         `Selección GPT completada.`,
         SearchService.name,
@@ -353,7 +369,16 @@ export class SearchService implements OnModuleDestroy {
         SearchService.name,
         { duration_ms: totalStepTime }
       );
-      return best;
+      
+      // Agregar timings al resultado
+      return {
+        ...best,
+        timings: {
+          embedding_time_ms: embeddingTime,
+          vector_search_time_ms: vectorSearchTime,
+          gpt_selection_time_ms: gptSelectionTime
+        }
+      };
 
     } catch (error) {
       const totalStepTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
