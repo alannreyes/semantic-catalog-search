@@ -295,7 +295,7 @@ export class SearchService implements OnModuleDestroy {
              p.codfabrica, 
              1 - (p.embedding <=> $1::vector) AS similarity 
            FROM ${this.productTable} p
-           LEFT JOIN marcas m ON UPPER(p.marca) = UPPER(m.marca)
+           LEFT JOIN marcas m ON UPPER(TRIM(p.marca)) = UPPER(TRIM(m.marca))
            ORDER BY p.embedding <=> $1::vector 
            LIMIT $2`,
           [vectorString, limit]
@@ -415,21 +415,21 @@ export class SearchService implements OnModuleDestroy {
       // Aplicar boost de score por segmento preferido
       if (segment) {
         productsForGPT.forEach(product => {
-          let segmentBoost = 0;
+          let segmentMultiplier = 1.0;
           if (product.segment === segment) {
-            segmentBoost = 0.15; // Boost del 15% para segmento preferido
+            segmentMultiplier = 1.4; // Boost multiplicativo del 40% para segmento preferido
           } else if (
             (segment === 'premium' && product.segment === 'standard') ||
             (segment === 'economy' && product.segment === 'standard') ||
             (segment === 'standard' && (product.segment === 'premium' || product.segment === 'economy'))
           ) {
-            segmentBoost = 0.05; // Boost menor del 5% para segmentos compatibles
+            segmentMultiplier = 1.15; // Boost del 15% para segmentos compatibles
           }
           
           const originalSimilarity = parseFloat(product.vectorSimilarity);
-          const boostedSimilarity = Math.min(1.0, originalSimilarity + segmentBoost);
+          const boostedSimilarity = Math.min(1.0, originalSimilarity * segmentMultiplier);
           product.adjustedSimilarity = boostedSimilarity.toFixed(4);
-          product.segmentBoost = segmentBoost.toFixed(3);
+          product.segmentBoost = ((segmentMultiplier - 1.0) * 100).toFixed(1) + '%';
         });
 
         // Reordenar productos por similaridad ajustada
