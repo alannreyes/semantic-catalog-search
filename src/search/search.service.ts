@@ -108,7 +108,7 @@ export class SearchService implements OnModuleDestroy {
           ...initialResult, 
           normalizado: null,
           timings: {
-            ...initialResult.timings,
+            ...(initialResult.timings || {}),
             total_time_ms: totalTime
           }
         };
@@ -166,7 +166,7 @@ export class SearchService implements OnModuleDestroy {
         ...resultAfterNormalization,
         normalizado: normalizedQuery,
         timings: {
-          ...resultAfterNormalization.timings,
+          ...(resultAfterNormalization.timings || {}),
           normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
           total_time_ms: totalTime
         }
@@ -339,7 +339,16 @@ export class SearchService implements OnModuleDestroy {
       );
 
       if (result.rows.length === 0) {
-        return { codigo: null, descripcion: null, similitud: "DISTINTO" };
+        return { 
+          codigo: null, 
+          descripcion: null, 
+          similitud: "DISTINTO",
+          timings: {
+            embedding_time_ms: embeddingTime,
+            vector_search_time_ms: vectorSearchTime,
+            gpt_selection_time_ms: 0
+          }
+        };
       }
 
       // --- SELECCIÓN GPT ---
