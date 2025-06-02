@@ -104,7 +104,16 @@ export class SearchService implements OnModuleDestroy {
         this.logger.log(`Similitud alta detectada (${initialResult.similitud}), no se requiere normalización.`, SearchService.name);
         const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
         this.logger.log(`Búsqueda completada (sin normalización).`, SearchService.name, { duration_ms: totalTime });
-        return { ...initialResult, normalizado: null };
+      return {
+        ...best,
+        normalizado: null,
+        timings: {
+          embedding_time_ms: Number(embeddingEnd - embeddingStart) / 1_000_000,
+          vector_search_time_ms: Number(vectorSearchEnd - vectorSearchStart) / 1_000_000,
+          gpt_selection_time_ms: Number(gptSelectionEnd - gptSelectionStart) / 1_000_000,
+          total_search_time_ms: Number(process.hrtime.bigint() - startTime) / 1_000_000
+        }
+      };
       }
 
       this.logger.log(`Similitud baja (${initialResult.similitud}), activando normalización de query con GPT-4o.`, SearchService.name);
@@ -157,7 +166,14 @@ export class SearchService implements OnModuleDestroy {
 
       return {
         ...resultAfterNormalization,
-        normalizado: normalizedQuery
+        normalizado: normalizedQuery,
+        timings: {
+          embedding_time_ms: Number(embeddingEnd - embeddingStart) / 1_000_000,
+          vector_search_time_ms: Number(vectorSearchEnd - vectorSearchStart) / 1_000_000,
+          gpt_selection_time_ms: Number(gptSelectionEnd - gptSelectionStart) / 1_000_000,
+          normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
+          total_search_time_ms: Number(process.hrtime.bigint() - startTime) / 1_000_000
+        }
       };
 
     } catch (error) {
