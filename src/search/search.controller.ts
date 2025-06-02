@@ -41,9 +41,6 @@ export class SearchController {
     @Query('limit') limit?: string,
     @Query('segment') segment?: 'premium' | 'standard' | 'economy'
   ) {
-	  
-	this.logger.log(`Raw query params: query=${query}, limit=${limit}, segment=${segment}, segment_type=${typeof segment}`);
-	  
     try {
       if (!query) {
         throw new HttpException('Query parameter is required', HttpStatus.BAD_REQUEST);
