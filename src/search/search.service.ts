@@ -433,7 +433,11 @@ export class SearchService implements OnModuleDestroy {
         });
 
         // Reordenar productos por similaridad ajustada
-        productsForGPT.sort((a, b) => parseFloat(b.adjustedSimilarity) - parseFloat(a.adjustedSimilarity));
+        productsForGPT.sort((a, b) => {
+          const aScore = parseFloat(a.adjustedSimilarity || a.vectorSimilarity);
+          const bScore = parseFloat(b.adjustedSimilarity || b.vectorSimilarity);
+          return bScore - aScore;
+        });
       }
 
       let segmentInstructions = '';
@@ -453,7 +457,7 @@ IMPORTANT: Consider the adjusted similarity scores - they already include segmen
 
       const productList = productsForGPT.map(p => {
         const similarityDisplay = segment && p.adjustedSimilarity 
-          ? `SIMILARITY: ${p.vectorSimilarity} | ADJUSTED_SIMILARITY: ${p.adjustedSimilarity} (boost: +${p.segmentBoost})`
+          ? `SIMILARITY: ${p.vectorSimilarity} | ADJUSTED_SIMILARITY: ${p.adjustedSimilarity} (boost: +${p.segmentBoost || '0.000'})`
           : `SIMILARITY: ${p.vectorSimilarity}`;
         
         return `${p.index}. CODE: ${p.codigo} | DESCRIPTION: "${p.text}" | BRAND: ${p.marca} | SEGMENT: ${p.segment} | FACTORY_CODE: ${p.codfabrica} | ${similarityDisplay}`;
