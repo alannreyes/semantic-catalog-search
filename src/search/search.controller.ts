@@ -1,20 +1,21 @@
 import { Controller, Post, Get, Body, Query, Param, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { SearchService } from './search.service';
 
-@Controller('search')
+@Controller()
 export class SearchController {
   private readonly logger = new Logger(SearchController.name);
   
   constructor(private readonly searchService: SearchService) {}
 
-  @Post()
+  // API REST moderna - POST /search
+  @Post('search')
   async search(@Body() body: { query: string; limit?: number; segment?: 'premium' | 'standard' | 'economy' }) {
     try {
       if (!body.query) {
         throw new HttpException('Query parameter is required', HttpStatus.BAD_REQUEST);
       }
       
-      this.logger.log(`Received POST search request for: "${body.query}"`);
+      this.logger.log(`Received API search request for: "${body.query}" with segment: ${body.segment || 'none'}`);
       
       const result = await this.searchService.searchProducts(
         body.query,
@@ -24,7 +25,7 @@ export class SearchController {
       
       return result;
     } catch (error) {
-      this.logger.error(`Search error: ${error.message}`);
+      this.logger.error(`API search error: ${error.message}`);
       throw new HttpException(
         error.message || 'An error occurred during search',
         HttpStatus.INTERNAL_SERVER_ERROR
@@ -32,8 +33,8 @@ export class SearchController {
     }
   }
 
-  // Nuevo endpoint para webhook GET
-  @Get('/webhook/:id')
+  // Webhook para n8n y aplicaciones legacy - GET /webhook/:id
+  @Get('webhook/:id')
   async webhookSearch(
     @Param('id') id: string,
     @Query('query') query: string,
