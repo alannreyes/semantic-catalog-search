@@ -168,7 +168,7 @@ export class SearchService implements OnModuleDestroy {
         ...resultAfterNormalization,
         normalizado: normalizedQuery,
         timings: {
-          ...resultAfterNormalization.timings,
+          ...(resultAfterNormalization.timings || {}),
           normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
           total_search_time_ms: totalTime
         }
