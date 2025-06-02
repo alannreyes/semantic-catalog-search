@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, Param, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { SearchService } from './search.service';
 
 @Controller('search')
@@ -8,22 +8,54 @@ export class SearchController {
   constructor(private readonly searchService: SearchService) {}
 
   @Post()
-  async search(@Body() body: { query: string; limit?: number }) {
+  async search(@Body() body: { query: string; limit?: number; segment?: 'premium' | 'standard' | 'economy' }) {
     try {
       if (!body.query) {
         throw new HttpException('Query parameter is required', HttpStatus.BAD_REQUEST);
       }
       
-      this.logger.log(`Received search request for: "${body.query}"`);
+      this.logger.log(`Received POST search request for: "${body.query}"`);
       
       const result = await this.searchService.searchProducts(
         body.query,
-        body.limit || 5
+        body.limit || 5,
+        body.segment
       );
       
       return result;
     } catch (error) {
       this.logger.error(`Search error: ${error.message}`);
+      throw new HttpException(
+        error.message || 'An error occurred during search',
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  // Nuevo endpoint para webhook GET
+  @Get('/webhook/:id')
+  async webhookSearch(
+    @Param('id') id: string,
+    @Query('query') query: string,
+    @Query('limit') limit?: string,
+    @Query('segment') segment?: 'premium' | 'standard' | 'economy'
+  ) {
+    try {
+      if (!query) {
+        throw new HttpException('Query parameter is required', HttpStatus.BAD_REQUEST);
+      }
+      
+      this.logger.log(`Received webhook search request for: "${query}" with segment: ${segment || 'none'}`);
+      
+      const result = await this.searchService.searchProducts(
+        query,
+        parseInt(limit) || 5,
+        segment
+      );
+      
+      return result;
+    } catch (error) {
+      this.logger.error(`Webhook search error: ${error.message}`);
       throw new HttpException(
         error.message || 'An error occurred during search',
         HttpStatus.INTERNAL_SERVER_ERROR
