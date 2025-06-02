@@ -3,10 +3,10 @@
       // Asegura que el embedding esté en formato correcto y tenga las dimensiones esperadas      // --- BÚSQUEDA CON QUERY NORMALIZADO ---
       // Segunda búsqueda usando el query mejorado por GPT-4o      // --- BÚSQUEDA SEMÁNTICA INICIAL ---
       // Primera búsqueda con el query original para evaluar si necesita normalización/**
- * SearchService - Servicio de búsqueda semántica con inteligencia artificial
+ * SearchService - Servicio de busqueda semantica con inteligencia artificial
  * 
- * Implementa búsqueda vectorial usando OpenAI embeddings y PostgreSQL con pgvector,
- * incluye sistema de boost por segmento de marca y selección inteligente con GPT-4o.
+ * Implementa busqueda vectorial usando OpenAI embeddings y PostgreSQL con pgvector,
+ * incluye sistema de boost por segmento de marca y seleccion inteligente con GPT-4o.
  * 
  * @author Alann Reyes (asistido por Claude Sonnet 4)
  * @date 2 de Junio, 2025
@@ -72,10 +72,10 @@ export class SearchService implements OnModuleDestroy {
   }
 
   /**
-   * Método principal de búsqueda semántica de productos
+   * Metodo principal de busqueda semantica de productos
    * 
-   * Coordina todo el proceso: embedding del query, búsqueda vectorial, boost por segmento,
-   * selección con GPT-4o y normalización automática si la similaridad es baja.
+   * Coordina todo el proceso: embedding del query, busqueda vectorial, boost por segmento,
+   * seleccion con GPT-4o y normalizacion automatica si la similaridad es baja.
    */
   async searchProducts(query: string, limit: number = 5, segment?: 'premium' | 'standard' | 'economy') {
     const startTime = process.hrtime.bigint();
@@ -215,7 +215,7 @@ export class SearchService implements OnModuleDestroy {
   }
 
   /**
-   * Ejecuta la búsqueda semántica vectorial y selección inteligente
+   * Ejecuta la busqueda semantica vectorial y seleccion inteligente
    * 
    * Convierte texto a embedding, busca vectores similares en PostgreSQL,
    * aplica boost por segmento de marca y usa GPT-4o para seleccionar el mejor resultado.
@@ -440,7 +440,7 @@ export class SearchService implements OnModuleDestroy {
    * Aplica inteligencia artificial para seleccionar el mejor producto
    * 
    * Analiza productos candidatos, aplica boost por segmento de marca,
-   * y usa GPT-4o para tomar la decisión final considerando contexto y preferencias del usuario.
+   * y usa GPT-4o para tomar la decision final considerando contexto y preferencias del usuario.
    */
   private async selectBestProductWithGPT(
     originalQuery: string,
@@ -797,10 +797,10 @@ INSTRUCCIONES:
   }
 
   /**
-   * Normaliza queries de usuario usando GPT-4o para mejorar búsquedas
+   * Normaliza queries de usuario usando GPT-4o para mejorar busquedas
    * 
-   * Corrige errores ortográficos, expande abreviaciones y mejora la especificidad
-   * del texto de búsqueda para obtener mejores resultados vectoriales.
+   * Corrige errores ortograficos, expande abreviaciones y mejora la especificidad
+   * del texto de busqueda para obtener mejores resultados vectoriales.
    */
   private async normalizeQueryWithGPT(query: string): Promise<string> {
     const stepStartTime = process.hrtime.bigint();
