@@ -451,16 +451,14 @@ export class SearchService implements OnModuleDestroy {
       let segmentInstructions = '';
       if (segment) {
         segmentInstructions = `
-CRITICAL - SEGMENT PREFERENCE APPLIED:
-User specifically requested '${segment}' segment products.
-Products have been pre-scored with segment preference (shown as ADJUSTED_SIMILARITY).
+IMPORTANTE - PREFERENCIA DE SEGMENTO:
+El usuario solicitó específicamente productos del segmento '${segment}'. 
+Orden de preferencia:
+${segment === 'premium' ? '1. premium (+100% boost) 2. standard (+20% boost) 3. economy (sin boost)' : 
+  segment === 'standard' ? '1. standard (+100% boost) 2. premium/economy (+20% boost)' : 
+  '1. economy (+100% boost) 2. standard (+20% boost) 3. premium (sin boost)'}
 
-Segment Priority Order:
-${segment === 'premium' ? '1. premium (+15% boost) 2. standard (+5% boost) 3. economy (no boost)' : 
-  segment === 'standard' ? '1. standard (+15% boost) 2. premium/economy (+5% boost)' : 
-  '1. economy (+15% boost) 2. standard (+5% boost) 3. premium (no boost)'}
-
-IMPORTANT: Consider the adjusted similarity scores - they already include segment preference.`;
+IMPORTANTE: Considera las puntuaciones ADJUSTED_SIMILARITY - ya incluyen la preferencia de segmento.`;
       }
 
       const productList = productsForGPT.map(p => {
@@ -471,33 +469,33 @@ IMPORTANT: Consider the adjusted similarity scores - they already include segmen
         return `${p.index}. CODE: ${p.codigo} | DESCRIPTION: "${p.text}" | BRAND: ${p.marca} | SEGMENT: ${p.segment} | FACTORY_CODE: ${p.codfabrica} | ${similarityDisplay}`;
       }).join('\n');
 
-      const prompt = `Analyze products and select the best match for user's search.
+      const prompt = `Analiza los productos y selecciona el mejor match para la búsqueda del usuario.
 
-USER QUERY: "${originalQuery}"
+CONSULTA DEL USUARIO: "${originalQuery}"
 
-AVAILABLE PRODUCTS:
+PRODUCTOS DISPONIBLES:
 ${productList}
 
 ${segmentInstructions}
 
-SIMILARITY SCALE:
-- EXACTO: Exactly what user is looking for
-- EQUIVALENTE: Same function with similar specs
-- COMPATIBLE: Works for same purpose
-- ALTERNATIVO: Could work but with differences
-- DISTINTO: Not what user is looking for
+ESCALA DE SIMILITUD:
+- EXACTO: Es exactamente lo que busca el usuario
+- EQUIVALENTE: Cumple la misma función con especificaciones similares
+- COMPATIBLE: Funciona para el mismo propósito
+- ALTERNATIVO: Puede servir pero con diferencias
+- DISTINTO: No es lo que busca
 
-INSTRUCTIONS:
-1. Analyze each product considering: brand, model, features, factory code
-2. Select ONLY ONE product (best match)
-3. If segment preference was specified, PRIORITIZE the ADJUSTED_SIMILARITY scores
-4. The adjusted similarity already includes segment preference weighting
-5. Respond ONLY with valid JSON:
+INSTRUCCIONES:
+1. Analiza cada producto considerando: marca, modelo, características, código de fábrica
+2. Selecciona SOLO UN producto (el mejor match)
+3. Si se especificó preferencia de segmento, PRIORIZA las puntuaciones ADJUSTED_SIMILARITY
+4. Las puntuaciones ajustadas ya incluyen la preferencia de segmento
+5. Responde ÚNICAMENTE con JSON válido:
 
 {
   "selectedIndex": 1,
   "similitud": "EXACTO",
-  "razon": "Brief explanation"
+  "razon": "Explicación breve en español"
 }`;
 
       this.logger.debug(
@@ -521,7 +519,7 @@ INSTRUCTIONS:
             messages: [
               {
                 role: "system",
-                content: "You are an expert in industrial product analysis. ALWAYS respond with valid JSON and nothing else."
+                content: "Eres un experto en análisis de productos industriales. SIEMPRE respondes con JSON válido y nada más. Tus explicaciones deben ser en español."
               },
               {
                 role: "user",
