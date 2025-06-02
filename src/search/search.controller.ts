@@ -49,7 +49,7 @@ export class SearchController {
       
       const result = await this.searchService.searchProducts(
         query,
-        parseInt(limit) || 5,
+        limit ? parseInt(limit) : 5,
         segment
       );
       
