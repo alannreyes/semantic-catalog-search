@@ -168,11 +168,9 @@ export class SearchService implements OnModuleDestroy {
         ...resultAfterNormalization,
         normalizado: normalizedQuery,
         timings: {
-          embedding_time_ms: Number(embeddingEnd - embeddingStart) / 1_000_000,
-          vector_search_time_ms: Number(vectorSearchEnd - vectorSearchStart) / 1_000_000,
-          gpt_selection_time_ms: Number(gptSelectionEnd - gptSelectionStart) / 1_000_000,
+          ...resultAfterNormalization.timings,
           normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
-          total_search_time_ms: Number(process.hrtime.bigint() - startTime) / 1_000_000
+          total_search_time_ms: totalTime
         }
       };
 
@@ -364,7 +362,17 @@ export class SearchService implements OnModuleDestroy {
         SearchService.name,
         { duration_ms: totalStepTime }
       );
-      return best;
+      
+      // Agregar timings detallados al resultado
+      return {
+        ...best,
+        timings: {
+          embedding_time_ms: Number(embeddingEnd - embeddingStart) / 1_000_000,
+          vector_search_time_ms: Number(vectorSearchEnd - vectorSearchStart) / 1_000_000,
+          gpt_selection_time_ms: Number(gptSelectionEnd - gptSelectionStart) / 1_000_000,
+          step_total_time_ms: totalStepTime
+        }
+      };
 
     } catch (error) {
       const totalStepTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
