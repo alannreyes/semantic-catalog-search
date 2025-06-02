@@ -1,3 +1,17 @@
+// --- PREPARACIÓN DE DATOS PARA ANÁLISIS ---
+      // Estructura los productos en formato optimizado para el análisis de GPT      // --- VALIDACIÓN Y CONVERSIÓN DEL EMBEDDING ---
+      // Asegura que el embedding esté en formato correcto y tenga las dimensiones esperadas      // --- BÚSQUEDA CON QUERY NORMALIZADO ---
+      // Segunda búsqueda usando el query mejorado por GPT-4o      // --- BÚSQUEDA SEMÁNTICA INICIAL ---
+      // Primera búsqueda con el query original para evaluar si necesita normalización/**
+ * SearchService - Servicio de búsqueda semántica con inteligencia artificial
+ * 
+ * Implementa búsqueda vectorial usando OpenAI embeddings y PostgreSQL con pgvector,
+ * incluye sistema de boost por segmento de marca y selección inteligente con GPT-4o.
+ * 
+ * @author Alann Reyes (asistido por Claude Sonnet 4)
+ * @date 2 de Junio, 2025
+ */
+
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
@@ -57,6 +71,12 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Método principal de búsqueda semántica de productos
+   * 
+   * Coordina todo el proceso: embedding del query, búsqueda vectorial, boost por segmento,
+   * selección con GPT-4o y normalización automática si la similaridad es baja.
+   */
   async searchProducts(query: string, limit: number = 5, segment?: 'premium' | 'standard' | 'economy') {
     const startTime = process.hrtime.bigint();
     let client: PoolClient;
@@ -73,7 +93,8 @@ export class SearchService implements OnModuleDestroy {
         SearchService.name
       );
 
-      // --- LOGGING DE CONEXIÓN A DB ---
+      // --- CONEXIÓN A BASE DE DATOS ---
+      // Obtiene una conexión del pool con timeout de seguridad
       const clientConnectStart = process.hrtime.bigint();
       client = await Promise.race([
         this.pool.connect(),
@@ -100,6 +121,8 @@ export class SearchService implements OnModuleDestroy {
         }
       );
 
+      // --- EVALUACIÓN DE SIMILITUD ---
+      // Si la similitud es alta (EXACTO/EQUIVALENTE), retorna sin normalización
       if (["EXACTO", "EQUIVALENTE"].includes(initialResult.similitud)) {
         this.logger.log(`Similitud alta detectada (${initialResult.similitud}), no se requiere normalización.`, SearchService.name);
         const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
@@ -114,6 +137,8 @@ export class SearchService implements OnModuleDestroy {
         };
       }
 
+      // --- NORMALIZACIÓN CON GPT-4o ---
+      // Si la similitud es baja, normaliza el query para mejorar la búsqueda
       this.logger.log(`Similitud baja (${initialResult.similitud}), activando normalización de query con GPT-4o.`, SearchService.name);
 
       const normalizeStart = process.hrtime.bigint();
@@ -189,6 +214,12 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Ejecuta la búsqueda semántica vectorial y selección inteligente
+   * 
+   * Convierte texto a embedding, busca vectores similares en PostgreSQL,
+   * aplica boost por segmento de marca y usa GPT-4o para seleccionar el mejor resultado.
+   */
   private async performSemanticSearch(
     inputText: string,
     limit: number = 5,
@@ -210,7 +241,8 @@ export class SearchService implements OnModuleDestroy {
         { segment_param: segment, segment_defined: !!segment }
       );
 
-      // --- LOGGING DE CREACIÓN DE EMBEDDING ---
+      // --- GENERACIÓN DE EMBEDDING ---
+      // Convierte el texto de búsqueda en vector numérico usando OpenAI
       const embeddingStart = process.hrtime.bigint();
       
       const embeddingParams: any = { 
@@ -287,7 +319,8 @@ export class SearchService implements OnModuleDestroy {
 
       const vectorString = `[${embedding.join(',')}]`;
 
-      // --- LOGGING DE CONFIGURACIÓN DE PROBES ---
+      // --- CONFIGURACIÓN DE BÚSQUEDA VECTORIAL ---
+      // Configura parámetros de pgvector para optimizar velocidad vs precisión
       const setProbesStart = process.hrtime.bigint();
       await Promise.race([
         client.query(`SET ivfflat.probes = ${this.probes}`),
@@ -303,7 +336,8 @@ export class SearchService implements OnModuleDestroy {
         }
       );
 
-      // --- BÚSQUEDA VECTORIAL CON JOIN A MARCAS ---
+      // --- BÚSQUEDA VECTORIAL CON SEGMENTACIÓN POR MARCA ---
+      // Busca productos similares y resuelve segmento usando tabla de marcas
       const vectorSearchStart = process.hrtime.bigint();
       const result = await Promise.race([
         client.query(
@@ -351,7 +385,8 @@ export class SearchService implements OnModuleDestroy {
         };
       }
 
-      // --- SELECCIÓN GPT ---
+      // --- SELECCIÓN INTELIGENTE CON GPT-4o ---
+      // Usa inteligencia artificial para seleccionar el mejor producto considerando contexto y preferencias
       const gptSelectionStart = process.hrtime.bigint();
       const best = await this.selectBestProductWithGPT(
         originalQueryOverride || inputText,
@@ -401,6 +436,12 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Aplica inteligencia artificial para seleccionar el mejor producto
+   * 
+   * Analiza productos candidatos, aplica boost por segmento de marca,
+   * y usa GPT-4o para tomar la decisión final considerando contexto y preferencias del usuario.
+   */
   private async selectBestProductWithGPT(
     originalQuery: string,
     products: any[],
@@ -442,7 +483,8 @@ export class SearchService implements OnModuleDestroy {
         };
       });
 
-      // Aplicar boost de score por segmento preferido
+      // --- SISTEMA DE BOOST POR SEGMENTO ---
+      // Aplica multiplicadores de similaridad según preferencia de segmento (premium, standard, economy)
       if (segment) {
         this.logger.log(`APLICANDO BOOST PARA SEGMENTO: ${segment}`, SearchService.name);
         
@@ -547,7 +589,8 @@ INSTRUCCIONES:
         }
       );
 
-      // --- LLAMADA A GPT ---
+      // --- LLAMADA A GPT-4o PARA DECISIÓN FINAL ---
+      // Envía productos y contexto a GPT-4o para selección inteligente con razonamiento en español
       const gptCallStart = process.hrtime.bigint();
       let gptResponse;
       
@@ -612,7 +655,8 @@ INSTRUCCIONES:
         throw new Error('GPT devolvió contenido vacío');
       }
 
-      // Parsear respuesta JSON
+      // --- PROCESAMIENTO DE RESPUESTA GPT ---
+      // Valida y procesa la respuesta JSON de GPT-4o con manejo robusto de errores
       let gptDecision;
       try {
         gptDecision = JSON.parse(gptContent);
@@ -696,7 +740,8 @@ INSTRUCCIONES:
         }
       );
 
-      // Fallback robusto
+      // --- SISTEMA DE FALLBACK ROBUSTO ---
+      // En caso de error, selecciona el producto con mayor similaridad como respaldo
       try {
         const firstProduct = products[0];
         const cleanText = (firstProduct.descripcion || '').trim();
@@ -751,6 +796,12 @@ INSTRUCCIONES:
     }
   }
 
+  /**
+   * Normaliza queries de usuario usando GPT-4o para mejorar búsquedas
+   * 
+   * Corrige errores ortográficos, expande abreviaciones y mejora la especificidad
+   * del texto de búsqueda para obtener mejores resultados vectoriales.
+   */
   private async normalizeQueryWithGPT(query: string): Promise<string> {
     const stepStartTime = process.hrtime.bigint();
     try {
