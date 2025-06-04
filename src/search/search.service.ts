@@ -568,7 +568,6 @@ INSTRUCCIONES:
 {
   "selectedIndex": 1,
   "similitud": "EXACTO",
-//  "razon": "Explicación breve en español"
 }`;
 
       this.logger.debug(
@@ -682,7 +681,6 @@ INSTRUCCIONES:
         gptDecision = {
           selectedIndex: 1,
           similitud: "ALTERNATIVO",
-//          razon: `Error parsing GPT response, using highest similarity product. Parse error: ${parseError.message}`
         };
       }
 
@@ -710,7 +708,6 @@ INSTRUCCIONES:
         codigo: selectedProduct.codigo,
         descripcion: selectedProduct.text,
         similitud: gptDecision.similitud,
-//        razon: gptDecision.razon || 'Selected by GPT',
         marca: selectedProduct.marca,
         segment: selectedProduct.segment,
         ...candidatos
@@ -764,7 +761,6 @@ INSTRUCCIONES:
           codigo: productCode,
           descripcion: cleanText,
           similitud: "ALTERNATIVO",
-//          razon: `Fallback after GPT error: ${error.message}`,
           marca: productMarca,
           segment: productSegment,
           ...candidatos
@@ -780,7 +776,6 @@ INSTRUCCIONES:
           codigo: null,
           descripcion: null,
           similitud: "DISTINTO",
-//          razon: `Critical error in product selection: ${error.message}`,
           marca: null,
           segment: 'standard'
         };
