@@ -7,20 +7,19 @@ async function bootstrap() {
   
   const port = process.env.PORT || 4000;
   const host = process.env.HOST || '0.0.0.0'; 
-  const frontendPort = process.env.PORTF || 4001;
   
-  // Habilitar CORS
+  // Obtener todos los orígenes permitidos desde .env
+  const allowedOrigins = process.env.ALLOWED_ORIGINS 
+    ? process.env.ALLOWED_ORIGINS.split(',') 
+    : ['http://localhost:3000']; // valor por defecto
+  
   app.enableCors({
-    origin: [
-      `http://localhost:${frontendPort}`,
-      // Si necesitas permitir otros orígenes, agrégalos desde variables de entorno
-      ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [])
-    ],
+    origin: allowedOrigins,
     credentials: true,
   });
   
-  await app.listen(port, host); // MODIFICADO - añadido host
-  logger.log(`Backend running on: http://${host}:${port}`); // MODIFICADO
-  logger.log(`CORS enabled for frontend on: http://localhost:${frontendPort}`);
+  await app.listen(port, host);
+  logger.log(`Backend running on: http://${host}:${port}`);
+  logger.log(`CORS enabled for: ${allowedOrigins.join(', ')}`);
 }
 bootstrap();
