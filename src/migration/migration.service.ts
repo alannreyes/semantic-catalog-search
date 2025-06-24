@@ -379,7 +379,7 @@ export class MigrationService {
 
        for (const [key, value] of Object.entries(additionalFields)) {
          updateFields.push(`${key} = $${valueIndex}`);
-         values.push(value);
+         values.push(value as string);
          valueIndex++;
        }
 

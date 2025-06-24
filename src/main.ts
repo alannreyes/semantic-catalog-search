@@ -37,7 +37,7 @@ async function bootstrap() {
   
   // Trust proxy para aplicaciones detrás de load balancers
   if (isProduction) {
-    app.set('trust proxy', 1);
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
   }
   
   // Validación global de entrada
