@@ -54,19 +54,20 @@ async function bootstrap() {
   // Logging interceptor para request tracking
   app.useGlobalInterceptors(new LoggingInterceptor());
   
-  // Habilitar CORS
+  // Configuración de CORS mejorada
+  const allowedOrigins = process.env.ALLOWED_ORIGINS 
+    ? process.env.ALLOWED_ORIGINS.split(',') 
+    : [`http://localhost:${frontendPort}`];
+  
   app.enableCors({
-    origin: [
-      `http://localhost:${frontendPort}`,
-      ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [])
-    ],
+    origin: allowedOrigins,
     credentials: true,
   });
   
   await app.listen(port, host);
   logger.log(`🚀 Backend running on: http://${host}:${port}`);
   logger.log(`🔒 Security enabled: Helmet + Rate Limiting`);
-  logger.log(`✅ CORS enabled for frontend on: http://localhost:${frontendPort}`);
+  logger.log(`✅ CORS enabled for: ${allowedOrigins.join(', ')}`);
   logger.log(`🛡️ Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
 }
 bootstrap();

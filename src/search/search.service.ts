@@ -553,7 +553,7 @@ ${productList}
 ${segmentInstructions}
 
 ESCALA DE SIMILITUD:
-- EXACTO: Es exactamente lo que busca el usuario
+- EXACTO: Es exactamente lo que busca el usuario incluyendo misma marca y modelo
 - EQUIVALENTE: Cumple la misma función con especificaciones similares
 - COMPATIBLE: Funciona para el mismo propósito
 - ALTERNATIVO: Puede servir pero con diferencias
@@ -563,13 +563,13 @@ INSTRUCCIONES:
 1. Analiza cada producto considerando: marca, modelo, características, código de fábrica
 2. Selecciona SOLO UN producto (el mejor match)
 3. Si se especificó preferencia de segmento, PRIORIZA las puntuaciones ADJUSTED_SIMILARITY
-4. Las puntuaciones ajustadas ya incluyen la preferencia de segmento
-5. Responde ÚNICAMENTE con JSON válido:
+4. Si se especificó marca o modelo, PRIORIZALO. 
+5. Las puntuaciones ajustadas ya incluyen la preferencia de segmento
+6. Responde ÚNICAMENTE con JSON válido:
 
 {
   "selectedIndex": 1,
   "similitud": "EXACTO",
-  "razon": "Explicación breve en español"
 }`;
 
       this.logger.debug(
@@ -683,7 +683,6 @@ INSTRUCCIONES:
         gptDecision = {
           selectedIndex: 1,
           similitud: "ALTERNATIVO",
-          razon: `Error parsing GPT response, using highest similarity product. Parse error: ${parseError.message}`
         };
       }
 
@@ -711,7 +710,6 @@ INSTRUCCIONES:
         codigo: selectedProduct.codigo,
         descripcion: selectedProduct.text,
         similitud: gptDecision.similitud,
-        razon: gptDecision.razon || 'Selected by GPT',
         marca: selectedProduct.marca,
         segment: selectedProduct.segment,
         ...candidatos
@@ -765,7 +763,6 @@ INSTRUCCIONES:
           codigo: productCode,
           descripcion: cleanText,
           similitud: "ALTERNATIVO",
-          razon: `Fallback after GPT error: ${error.message}`,
           marca: productMarca,
           segment: productSegment,
           ...candidatos
@@ -781,7 +778,6 @@ INSTRUCCIONES:
           codigo: null,
           descripcion: null,
           similitud: "DISTINTO",
-          razon: `Critical error in product selection: ${error.message}`,
           marca: null,
           segment: 'standard'
         };
@@ -789,9 +785,9 @@ INSTRUCCIONES:
     }
   }
 
-  // Normaliza queries de usuario usando GPT-4o para mejorar busquedas
-  // Corrige errores ortograficos, expande abreviaciones y mejora la especificidad
-  // del texto de busqueda para obtener mejores resultados vectoriales.
+// Normaliza queries de usuario usando GPT-4o para mejorar busquedas
+// Corrige errores ortograficos, expande abreviaciones y mejora la especificidad
+// del texto de busqueda para obtener mejores resultados vectoriales.
   private async normalizeQueryWithGPT(query: string): Promise<string> {
     const stepStartTime = process.hrtime.bigint();
     try {
