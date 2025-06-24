@@ -444,16 +444,41 @@ export class MigrationService {
        
                // Limpiar campo descripción si existe
         const descripcionField = fieldMapping.descripcion;
+        const codigoField = fieldMapping.codigo;
+        
         if (descripcionField && record[descripcionField]) {
           const originalText = String(record[descripcionField]);
-          const translatedText = await this.acronimosService.translateText(originalText);
+          const codigo = codigoField ? String(record[codigoField]) : null;
+          
+          // Verificar si la expansión está bloqueada para este producto
+          let translatedText = originalText;
+          let expansionBloqueada = false;
+          
+          if (codigo) {
+            const blockCheck = await this.pgPool.query(
+              'SELECT expansion_bloqueada FROM productos_1024 WHERE codigo = $1',
+              [codigo]
+            );
+            expansionBloqueada = blockCheck.rows[0]?.expansion_bloqueada || false;
+          }
+          
+          // Solo expandir si no está bloqueada
+          if (!expansionBloqueada) {
+            translatedText = await this.acronimosService.translateText(originalText);
+          }
           
           // Guardar texto original para la base de datos y texto traducido para embedding
           cleanedRecord[descripcionField] = originalText; // Original para DB
           cleanedRecord._translated_descripcion = translatedText; // Traducido para embedding
+          cleanedRecord._expansion_info = {
+            aplicada: originalText !== translatedText,
+            bloqueada: expansionBloqueada
+          };
           
           if (originalText !== translatedText) {
             this.logger.debug(`Texto traducido: "${originalText}" -> "${translatedText}"`);
+          } else if (expansionBloqueada) {
+            this.logger.debug(`Expansión bloqueada para código: ${codigo}`);
           }
         }
        

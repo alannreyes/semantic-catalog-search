@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Pool } from 'pg';
+import { FindExpandedProductsDto } from './dto/manage-expansion.dto';
 
 @Injectable()
 export class AcronimosService {
@@ -160,5 +161,134 @@ export class AcronimosService {
   // Helper para escapar caracteres especiales en regex
   private escapeRegExp(string: string): string {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // === MÉTODOS PARA GESTIÓN DE EXPANSIONES ===
+
+  async findExpandedProducts(dto: FindExpandedProductsDto) {
+    try {
+      let query = `
+        SELECT 
+          codigo,
+          descripcion,
+          descripcion_original,
+          descripcion_expandida,
+          marca,
+          expansion_aplicada,
+          expansion_bloqueada,
+          expansion_fecha,
+          expansion_detalle
+        FROM productos_1024
+        WHERE expansion_aplicada = true
+      `;
+      
+      const params = [];
+      let paramIndex = 1;
+
+      if (dto.filtro) {
+        query += ` AND (descripcion ILIKE $${paramIndex} OR codigo ILIKE $${paramIndex})`;
+        params.push(`%${dto.filtro}%`);
+        paramIndex++;
+      }
+
+      if (dto.soloBloqueados) {
+        query += ` AND expansion_bloqueada = true`;
+      }
+
+      query += ` ORDER BY expansion_fecha DESC LIMIT 100`;
+
+      const result = await this.pool.query(query, params);
+      return result.rows;
+    } catch (error) {
+      this.logger.error(`Error al buscar productos expandidos: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async getExpansionDetails(codigo: string) {
+    try {
+      const result = await this.pool.query(`
+        SELECT 
+          codigo,
+          descripcion,
+          descripcion_original,
+          descripcion_expandida,
+          marca,
+          expansion_aplicada,
+          expansion_bloqueada,
+          expansion_fecha,
+          expansion_detalle
+        FROM productos_1024
+        WHERE codigo = $1
+      `, [codigo]);
+      
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error(`Error al obtener detalles de expansión: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async revertExpansion(codigo: string, bloquearFuturas: boolean = true): Promise<boolean> {
+    try {
+      const result = await this.pool.query(
+        'SELECT revertir_expansion($1, $2) as success',
+        [codigo, bloquearFuturas]
+      );
+      
+      return result.rows[0]?.success || false;
+    } catch (error) {
+      this.logger.error(`Error al revertir expansión: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async revertBulkExpansions(codigos: string[], bloquearFuturas: boolean = true) {
+    const results = [];
+    
+    for (const codigo of codigos) {
+      try {
+        const success = await this.revertExpansion(codigo, bloquearFuturas);
+        results.push({ codigo, success, error: null });
+      } catch (error) {
+        results.push({ codigo, success: false, error: error.message });
+      }
+    }
+    
+    return results;
+  }
+
+  async getExpansionStats() {
+    try {
+      const stats = await this.pool.query(`
+        SELECT 
+          COUNT(*) FILTER (WHERE expansion_aplicada = true) as total_expandidos,
+          COUNT(*) FILTER (WHERE expansion_bloqueada = true) as total_bloqueados,
+          COUNT(*) FILTER (WHERE expansion_aplicada = false AND expansion_bloqueada = true) as bloqueados_sin_expansion,
+          COUNT(*) as total_productos,
+          MAX(expansion_fecha) as ultima_expansion
+        FROM productos_1024
+      `);
+
+      const byMarca = await this.pool.query(`
+        SELECT 
+          marca,
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE expansion_aplicada = true) as expandidos
+        FROM productos_1024
+        GROUP BY marca
+        HAVING COUNT(*) FILTER (WHERE expansion_aplicada = true) > 0
+        ORDER BY expandidos DESC
+        LIMIT 10
+      `);
+
+      return {
+        resumen: stats.rows[0],
+        por_marca: byMarca.rows
+      };
+    } catch (error) {
+      this.logger.error(`Error al obtener estadísticas: ${error.message}`);
+      throw error;
+    }
   }
 } 
