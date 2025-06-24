@@ -1,0 +1,43 @@
+https://drive.google.com/drive/folders/1MI8Y_Hah3dcZUIoIr6oLGyI4XFlSeSed?usp=drive_link
+
+
+https://automate-n8n.l9sgez.easypanel.host/webhook/sum?drive=1MI8Y_Hah3dcZUIoIr6oLGyI4XFlSeSed
+
+
+Paso 1: Verifica en Google Cloud Console
+
+Ve a console.cloud.google.com
+Asegúrate de tener un proyecto activo o crea uno nuevo
+Habilita las APIs necesarias:
+
+Ve a "APIs y servicios" > "Biblioteca"
+Busca y habilita: Google Drive API, Google Sheets API, Gmail API (según necesites)
+
+
+Paso 2: Crear credenciales OAuth 2.0
+
+Ve a "APIs y servicios"
+Ve a "Credenciales"
+Click en "Crear credenciales" > "ID de cliente OAuth"
+Si te pide configurar la pantalla de consentimiento:
+  Selecciona "Interno" si es para tu organización
+  Completa los campos obligatorios
+  Agrega los scopes necesarios
+
+
+Paso 3: Configurar el cliente OAuth
+
+Tipo de aplicación: "Aplicación web"
+Nombre: "n8n" (o como prefieras)
+
+Orígenes autorizados de JavaScript
+https://automate-n8n.l9sgez.easypanel.host
+https://n8n.claimpay.net
+
+URIs de redirección autorizadas (crítico):
+
+https://automate-n8n.l9sgez.easypanel.host/rest/oauth2-credential/callback
+https://n8n.claimpay.net/rest/oauth2-credential/callback
+
+
+

@@ -1,8 +1,3 @@
-// --- PREPARACIÓN DE DATOS PARA ANÁLISIS ---
-      // Estructura los productos en formato optimizado para el análisis de GPT      // --- VALIDACIÓN Y CONVERSIÓN DEL EMBEDDING ---
-      // Asegura que el embedding esté en formato correcto y tenga las dimensiones esperadas      // --- BÚSQUEDA CON QUERY NORMALIZADO ---
-      // Segunda búsqueda usando el query mejorado por GPT-4o      // --- BÚSQUEDA SEMÁNTICA INICIAL ---
-      // Primera búsqueda con el query original para evaluar si necesita normalización//
 // SearchService - Servicio de busqueda semantica con inteligencia artificial
 // 
 // Implementa busqueda vectorial usando OpenAI embeddings y PostgreSQL con pgvector,
@@ -39,6 +34,13 @@ export class SearchService implements OnModuleDestroy {
       connectionTimeoutMillis: 10000, // 10 segundos timeout para conexión
       statement_timeout: 30000, // 30 segundos timeout para queries
       query_timeout: 30000, // 30 segundos timeout para queries
+      // Configuración SSL para producción
+      ssl: process.env.NODE_ENV === 'production' ? {
+        rejectUnauthorized: true, // Validar certificados SSL
+        ca: this.configService.get<string>('DB_CA_CERT'), // Certificado CA
+        cert: this.configService.get<string>('DB_CLIENT_CERT'), // Certificado cliente
+        key: this.configService.get<string>('DB_CLIENT_KEY') // Clave privada cliente
+      } : false,
     });
 
     this.openai = new OpenAI({
