@@ -94,22 +94,71 @@ export class AcronimosService {
     }
   }
 
-  // Método para traducir texto usando los acrónimos activos
+  // Método para traducir texto usando los acrónimos activos con contexto
   async translateText(text: string): Promise<string> {
     try {
-      const acronimos = await this.findAllActive();
-      let translatedText = text;
-
-      for (const { acronimo, descripcion } of acronimos) {
-        // Reemplazar acrónimo manteniendo mayúsculas/minúsculas del contexto
-        const regex = new RegExp(`\\b${acronimo}\\b`, 'gi');
-        translatedText = translatedText.replace(regex, descripcion);
-      }
-
-      return translatedText;
+      // Usar la función SQL que maneja contexto inteligentemente
+      const result = await this.pool.query(
+        'SELECT expand_acronimos_contextual($1) as texto_expandido',
+        [text]
+      );
+      
+      const textoExpandido = result.rows[0]?.texto_expandido || text;
+      
+      this.logger.debug(
+        `Texto expandido: "${text}" → "${textoExpandido}"`,
+        { original_length: text.length, expanded_length: textoExpandido.length }
+      );
+      
+      return textoExpandido;
     } catch (error) {
       this.logger.error(`Error al traducir texto: ${error.message}`);
       return text; // Retorna texto original en caso de error
     }
+  }
+
+  // Método para expandir texto con contexto manual (backup)
+  async translateTextWithContext(text: string): Promise<string> {
+    try {
+      const result = await this.pool.query(`
+        SELECT acronimo, descripcion, palabras_clave
+        FROM acronimos
+        WHERE activo = true
+        ORDER BY LENGTH(acronimo) DESC
+      `);
+      
+      let expandedText = text.toUpperCase();
+      
+      for (const row of result.rows) {
+        const { acronimo, descripcion, palabras_clave } = row;
+        
+        // Si tiene palabras clave, verificar contexto
+        if (palabras_clave && palabras_clave.length > 0) {
+          const hasContext = palabras_clave.some(palabra => 
+            expandedText.includes(palabra.toUpperCase())
+          );
+          
+          if (hasContext) {
+            // Usar word boundaries para evitar reemplazos parciales
+            const regex = new RegExp(`\\b${this.escapeRegExp(acronimo)}\\b`, 'gi');
+            expandedText = expandedText.replace(regex, descripcion);
+          }
+        } else {
+          // Sin contexto específico, reemplazar siempre
+          const regex = new RegExp(`\\b${this.escapeRegExp(acronimo)}\\b`, 'gi');
+          expandedText = expandedText.replace(regex, descripcion);
+        }
+      }
+      
+      return expandedText;
+    } catch (error) {
+      this.logger.error(`Error al traducir texto con contexto: ${error.message}`);
+      return text;
+    }
+  }
+
+  // Helper para escapar caracteres especiales en regex
+  private escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 } 

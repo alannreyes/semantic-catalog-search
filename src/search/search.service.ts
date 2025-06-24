@@ -11,6 +11,7 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
 import OpenAI from 'openai';
+import { AcronimosService } from '../acronimos/acronimos.service';
 
 @Injectable()
 export class SearchService implements OnModuleDestroy {
@@ -25,6 +26,7 @@ export class SearchService implements OnModuleDestroy {
   constructor(
     private configService: ConfigService,
     private readonly logger: Logger,
+    private readonly acronimosService: AcronimosService,
   ) {
     // Configuración optimizada del pool de conexiones
     this.pool = new Pool({
@@ -92,6 +94,16 @@ export class SearchService implements OnModuleDestroy {
         SearchService.name
       );
 
+      // --- EXPANSIÓN CONTEXTUAL DE ACRÓNIMOS ---
+      // Expande acrónimos en la query del usuario para mejorar la búsqueda
+      const expandedQuery = await this.acronimosService.translateText(query);
+      if (expandedQuery !== query) {
+        this.logger.log(
+          `Query expandida con acrónimos: "${query}" → "${expandedQuery}"`,
+          SearchService.name
+        );
+      }
+
       // --- CONEXIÓN A BASE DE DATOS ---
       // Obtiene una conexión del pool con timeout de seguridad
       const clientConnectStart = process.hrtime.bigint();
@@ -107,7 +119,7 @@ export class SearchService implements OnModuleDestroy {
       );
 
       const initialSearchStart = process.hrtime.bigint();
-      const initialResult = await this.performSemanticSearch(query, limit, client, segment);
+      const initialResult = await this.performSemanticSearch(expandedQuery, limit, client, segment, query);
       const initialSearchEnd = process.hrtime.bigint();
       this.logger.log(
         `Búsqueda semántica inicial completada. Similitud: ${initialResult.similitud}`,
@@ -159,9 +171,18 @@ export class SearchService implements OnModuleDestroy {
         }
       );
 
+      // Expandir query normalizada también
+      const expandedNormalizedQuery = await this.acronimosService.translateText(normalizedQuery);
+      if (expandedNormalizedQuery !== normalizedQuery) {
+        this.logger.log(
+          `Query normalizada expandida: "${normalizedQuery}" → "${expandedNormalizedQuery}"`,
+          SearchService.name
+        );
+      }
+
       const resultAfterNormalizationStart = process.hrtime.bigint();
       const resultAfterNormalization = await this.performSemanticSearch(
-        normalizedQuery,
+        expandedNormalizedQuery,
         limit,
         client,
         segment,
