@@ -29,8 +29,8 @@ export class TransactionHelper {
       const query = `
         INSERT INTO ${tableName} (${destinationFields.join(', ')}) 
         VALUES (${placeholders})
-        ON CONFLICT (codigo_efc) DO UPDATE SET
-        ${destinationFields.filter(f => f !== 'codigo_efc').map(f => `${f} = EXCLUDED.${f}`).join(', ')}
+        ON CONFLICT (codigo) DO UPDATE SET
+        ${destinationFields.filter(f => f !== 'codigo').map(f => `${f} = EXCLUDED.${f}`).join(', ')}
       `;
       
       for (const record of records) {
@@ -43,7 +43,7 @@ export class TransactionHelper {
             
             // Convertir valores según tipo de campo
             if (destField === 'articulo_stock' || destField === 'lista_costos') {
-              value = value ? 1 : 0;
+              value = value === '1' || value === true || value === 1;
             }
             
             values.push(value);
@@ -61,7 +61,8 @@ export class TransactionHelper {
           insertedCount++;
           
         } catch (recordError) {
-          const errorMsg = `Error en registro ${record.codigo_efc || 'unknown'}: ${recordError.message}`;
+          const errorMsg = `Error en registro ${record.codigo || record.ART_CODART || 'unknown'}: ${recordError.message}`;
+          this.logger.error(`🔥 Error específico: ${errorMsg}`, recordError.stack);
           errors.push(errorMsg);
         }
       }
