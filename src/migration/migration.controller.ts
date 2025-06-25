@@ -35,12 +35,16 @@ export class MigrationController {
           },
           table: config.source.table || this.configService.get('MSSQL_SOURCE_TABLE'),
           fields: config.source.fields || {
-            codigo_efc: 'ART_CODART',
+            codigo: 'ART_CODART',
             descripcion: 'ART_DESART',
             marca: 'ART_PARAM3',
-            codfabrica: 'ART_CODFABRICA',
+            codigo_fabrica: 'ART_CODFABRICA',
             articulo_stock: 'ART_FLGSTKDIST',
-            lista_costos: 'ART_FLGLSTPRE'
+            lista_costos: 'ART_FLGLSTPRE',
+            categoria: 'ART_CODFAM',
+            precio_lista: 'ART_PRECLISTA',
+            precio_costo: 'ART_PRECCOSTO',
+            unidad_medida: 'ART_UNIMED'
           },
           where_clause: config.source.where_clause || this.configService.get('MSSQL_WHERE_CLAUSE')
         },
