@@ -122,8 +122,9 @@ export class MigrationService {
       };
 
     } catch (error) {
-      this.logger.error(`Error al crear job de migración: ${error.message}`);
-      throw error;
+      const errorMessage = error?.message || error?.toString() || 'Error desconocido';
+      this.logger.error(`Error al crear job de migración: ${errorMessage}`, error.stack);
+      throw new Error(`Failed to create migration job: ${errorMessage}`);
     }
   }
 
