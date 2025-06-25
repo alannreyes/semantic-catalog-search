@@ -363,7 +363,7 @@ export class SearchService implements OnModuleDestroy {
              p.descripcion, 
              p.marca, 
              COALESCE(m.segment, 'standard') as segment,
-             p.codfabrica, 
+             p.codigo_fabrica, 
              1 - (p.embedding <=> $1::vector) AS similarity 
            FROM ${this.productTable} p
            LEFT JOIN marcas m ON UPPER(TRIM(p.marca)) = UPPER(TRIM(m.marca))
@@ -482,7 +482,7 @@ export class SearchService implements OnModuleDestroy {
         const productCode = (product.codigo || '').trim();
         const productMarca = (product.marca || 'N/A').trim();
         const productSegment = (product.segment || 'standard').trim();
-        const productCodFabrica = (product.codfabrica || '').trim();
+        const productCodFabrica = (product.codigo_fabrica || '').trim();
 
         return {
           index: index + 1,
@@ -490,7 +490,7 @@ export class SearchService implements OnModuleDestroy {
           text: cleanText,
           marca: productMarca,
           segment: productSegment,
-          codfabrica: productCodFabrica,
+          codigo_fabrica: productCodFabrica,
           vectorSimilarity: Number(product.similarity || 0).toFixed(4),
           adjustedSimilarity: undefined as string | undefined,
           segmentBoost: undefined as string | undefined
@@ -561,7 +561,7 @@ IMPORTANTE: Considera las puntuaciones ADJUSTED_SIMILARITY - ya incluyen la pref
           ? `SIMILARITY: ${p.vectorSimilarity} | ADJUSTED_SIMILARITY: ${p.adjustedSimilarity} (boost: +${p.segmentBoost || '0.000'})`
           : `SIMILARITY: ${p.vectorSimilarity}`;
         
-        return `${p.index}. CODE: ${p.codigo} | DESCRIPTION: "${p.text}" | BRAND: ${p.marca} | SEGMENT: ${p.segment} | FACTORY_CODE: ${p.codfabrica} | ${similarityDisplay}`;
+        return `${p.index}. CODE: ${p.codigo} | DESCRIPTION: "${p.text}" | BRAND: ${p.marca} | SEGMENT: ${p.segment} | FACTORY_CODE: ${p.codigo_fabrica} | ${similarityDisplay}`;
       }).join('\n');
 
       const prompt = `Analiza los productos y selecciona el mejor match para la búsqueda del usuario.
