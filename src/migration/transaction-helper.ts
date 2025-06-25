@@ -12,88 +12,66 @@ export class TransactionHelper {
   ): Promise<{ insertedCount: number; errors: string[] }> {
     if (records.length === 0) return { insertedCount: 0, errors: [] };
 
-    this.logger.log(`Insertando ${records.length} registros en ${tableName} con transacción`);
+    this.logger.log(`Insertando ${records.length} registros en ${tableName} usando pgvector best practices`);
     
-    const client = await pool.connect();
     let insertedCount = 0;
     const errors: string[] = [];
     
-    try {
-      // Iniciar transacción
-      await client.query('BEGIN');
-      
-      const destinationFields = Object.keys(fieldMapping);
-      destinationFields.push('embedding');
-      
-      const placeholders = destinationFields.map((_, index) => `$${index + 1}`).join(', ');
-      const query = `
-        INSERT INTO ${tableName} (${destinationFields.join(', ')}) 
-        VALUES (${placeholders})
-        ON CONFLICT (codigo) DO UPDATE SET
-        ${destinationFields.filter(f => f !== 'codigo').map(f => `${f} = EXCLUDED.${f}`).join(', ')}
-      `;
-      
-      for (const record of records) {
-        try {
-          const values = [];
-          
-          // Mapear campos según fieldMapping
-          for (const [destField, sourceField] of Object.entries(fieldMapping)) {
-            let value = record[sourceField];
-            
-            // Convertir valores según tipo de campo
-            if (destField === 'articulo_stock' || destField === 'lista_costos') {
-              value = value === '1' || value === true || value === 1;
-            }
-            
-            values.push(value);
-          }
-          
-          // Agregar embedding
-          const embedding = record._embedding;
-          if (embedding && Array.isArray(embedding)) {
-            values.push(`[${embedding.join(',')}]`);
-          } else {
-            values.push(null);
-          }
-
-          await client.query(query, values);
-          insertedCount++;
-          
-        } catch (recordError) {
-          const errorMsg = `Error en registro ${record.codigo || record.ART_CODART || 'unknown'}: ${recordError.message}`;
-          this.logger.error(`🔥 Error específico: ${errorMsg}`, recordError.stack);
-          errors.push(errorMsg);
-        }
-      }
-      
-      // Evaluar si confirmar o hacer rollback
-      const successRate = insertedCount / records.length;
-      
-      if (successRate >= 0.7) { // 70% de éxito mínimo
-        await client.query('COMMIT');
-        this.logger.log(`✅ Transacción confirmada: ${insertedCount}/${records.length} registros (${Math.round(successRate * 100)}% éxito)`);
-      } else {
-        await client.query('ROLLBACK');
-        throw new Error(`❌ Batch falló: solo ${Math.round(successRate * 100)}% exitoso - rollback aplicado`);
-      }
-      
-      return { insertedCount, errors };
-
-    } catch (error) {
-      // Rollback automático en caso de error crítico
+    // Simplified approach - individual inserts with proper error handling
+    for (const record of records) {
       try {
-        await client.query('ROLLBACK');
-      } catch (rollbackError) {
-        this.logger.error(`Error en rollback: ${rollbackError.message}`);
+        // Simple INSERT following pgvector best practices
+        const query = `
+          INSERT INTO ${tableName} (
+            codigo,
+            descripcion,
+            marca,
+            codigo_fabrica,
+            categoria,
+            articulo_stock,
+            lista_costos,
+            embedding
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT (codigo) DO UPDATE SET
+            descripcion = EXCLUDED.descripcion,
+            marca = EXCLUDED.marca,
+            codigo_fabrica = EXCLUDED.codigo_fabrica,
+            categoria = EXCLUDED.categoria,
+            articulo_stock = EXCLUDED.articulo_stock,
+            lista_costos = EXCLUDED.lista_costos,
+            embedding = EXCLUDED.embedding
+        `;
+
+        const values = [
+          record[fieldMapping.codigo] || null,
+          record[fieldMapping.descripcion] || null,
+          record[fieldMapping.marca] || null,
+          record[fieldMapping.codigo_fabrica] || null,
+          record[fieldMapping.categoria] || null,
+          record[fieldMapping.articulo_stock] === '1' || record[fieldMapping.articulo_stock] === true,
+          record[fieldMapping.lista_costos] === '1' || record[fieldMapping.lista_costos] === true,
+          record._embedding ? `[${record._embedding.join(',')}]` : null
+        ];
+
+        await pool.query(query, values);
+        insertedCount++;
+
+      } catch (recordError) {
+        const codigo = record[fieldMapping.codigo] || 'unknown';
+        const errorMsg = `${codigo}: ${recordError.message}`;
+        this.logger.error(`🔥 pgvector insert error: ${errorMsg}`);
+        errors.push(errorMsg);
       }
-      
-      this.logger.error(`💥 Error crítico en inserción batch: ${error.message}`);
-      throw error;
-    } finally {
-      // Siempre liberar la conexión
-      client.release();
     }
+
+    const successRate = insertedCount / records.length;
+    this.logger.log(`✅ Batch completed: ${insertedCount}/${records.length} successful (${Math.round(successRate * 100)}%)`);
+
+    if (successRate < 0.7) {
+      throw new Error(`❌ Batch falló: solo ${Math.round(successRate * 100)}% exitoso`);
+    }
+
+    return { insertedCount, errors };
   }
 
   static async executeInTransaction<T>(
