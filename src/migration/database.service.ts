@@ -22,8 +22,8 @@ export class DatabaseService {
         user: this.configService.get<string>('MSSQL_USER'),
         password: this.configService.get<string>('MSSQL_PASSWORD'),
         options: {
-          encrypt: process.env.NODE_ENV === 'production', // Habilitar SSL en producción
-          trustServerCertificate: process.env.NODE_ENV !== 'production', // Solo en desarrollo
+          encrypt: false, // Servidor MSSQL no soporta SSL
+          trustServerCertificate: true,
           enableArithAbort: true,
         },
         pool: {
