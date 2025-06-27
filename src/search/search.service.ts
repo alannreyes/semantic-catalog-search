@@ -893,6 +893,18 @@ INSTRUCCIONES:
     }
   }
 
+  async getDebugConfig() {
+    return {
+      productTable: this.productTable,
+      embeddingModel: this.embeddingModel,
+      vectorDimensions: this.vectorDimensions,
+      probes: this.probes,
+      databaseUrl: this.configService.get<string>('DATABASE_URL')?.replace(/:[^:]*@/, ':***@'), // Hide password
+      nodeEnv: process.env.NODE_ENV,
+      openaiKeyPrefix: this.configService.get<string>('OPENAI_API_KEY')?.substring(0, 10) + '...'
+    };
+  }
+
   async onModuleDestroy() {
     this.logger.log(`Cerrando pool de conexiones de PostgreSQL en SearchService.`, SearchService.name);
     await this.pool.end();

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Logger, Get } from '@nestjs/common';
 import { SearchService } from './search.service';
 import { SearchDto } from './dto/search.dto';
 
@@ -20,6 +20,12 @@ export class SearchController {
     );
     
     return result;
+  }
+
+  // Debug endpoint para verificar configuración
+  @Get('debug/config')
+  async getConfig() {
+    return await this.searchService.getDebugConfig();
   }
 
 }
