@@ -53,7 +53,7 @@ export class SearchService implements OnModuleDestroy {
 
     this.probes = parseInt(this.configService.get<string>('PGVECTOR_PROBES') || '1', 10);
     this.embeddingModel = this.configService.get<string>('OPENAI_MODEL') || 'text-embedding-3-large';
-    this.productTable = this.configService.get<string>('PRODUCT_TABLE') || 'productos_1024';
+    this.productTable = this.configService.get<string>('PRODUCT_TABLE') || 'productos_bip';
     
     this.vectorDimensions = parseInt(
       this.configService.get<string>('VECTOR_DIMENSIONS') || '1024', 
