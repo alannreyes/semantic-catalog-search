@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { SearchController } from './search/search.controller';
 import { SearchService } from './search/search.service';
 import { VisionController } from './vision.controller';
@@ -10,6 +11,7 @@ import { SegmentsModule } from './segments/segments.module';
 import { AcronimosModule } from './acronimos/acronimos.module';
 import { MigrationModule } from './migration/migration.module';
 import { HealthModule } from './health/health.module';
+import { SyncModule } from './sync/sync.module';
 
 @Module({
   imports: [
@@ -40,10 +42,12 @@ import { HealthModule } from './health/health.module';
         POSTGRES_MIGRATION_TABLE: Joi.string().default('productos_bip'),
       }),
     }),
+    ScheduleModule.forRoot(),
     SegmentsModule,
     AcronimosModule,
     MigrationModule,
     HealthModule,
+    SyncModule,
   ],
   controllers: [SearchController, VisionController],
   providers: [
