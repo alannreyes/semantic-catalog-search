@@ -457,7 +457,7 @@ export class MigrationService {
           
           if (codigo) {
             const blockCheck = await this.pgPool.query(
-              'SELECT expansion_bloqueada FROM productos_1024 WHERE codigo = $1',
+              'SELECT expansion_bloqueada FROM productos_bip WHERE codigo = $1',
               [codigo]
             );
             expansionBloqueada = blockCheck.rows[0]?.expansion_bloqueada || false;
@@ -505,13 +505,27 @@ export class MigrationService {
        this.logger.log(`Generando embeddings - sublote ${batchNumber}/${totalBatches}`);
        
        try {
-                   // Preparar textos para embedding (usar texto traducido)
+                   // Preparar textos para embedding (usar texto traducido/expandido)
           const textsForEmbedding = batch.map(record => {
+            // Usar texto traducido/expandido si existe
             const translated = record._translated_descripcion;
-            if (translated) return String(translated);
+            if (translated && translated.trim()) {
+              return String(translated).trim();
+            }
             
-            const firstTextValue = Object.values(record)[1];
-            return firstTextValue ? String(firstTextValue) : '';
+            // Fallback: usar descripción original directamente
+            const descripcionField = Object.keys(record).find(key => key.toLowerCase().includes('descripcion'));
+            if (descripcionField && record[descripcionField]) {
+              return String(record[descripcionField]).trim();
+            }
+            
+            // Último fallback: campo ART_DESART si existe
+            if (record['ART_DESART']) {
+              return String(record['ART_DESART']).trim();
+            }
+            
+            this.logger.warn(`No se encontró descripción para el registro`, record);
+            return '';
           });
 
          // Generar embeddings en paralelo pero limitado
