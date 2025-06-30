@@ -93,6 +93,18 @@ MSSQL_USER
 MSSQL_PASSWORD
 MSSQL_SERVER
 MSSQL_DATABASE
+
+# Boost system configuration
+BOOST_SEGMENT_PREFERRED=1.05   # Boost for exact segment match (default: 5%)
+BOOST_SEGMENT_COMPATIBLE=1.03  # Boost for compatible segment (default: 3%)
+BOOST_STOCK=1.10               # Boost for products with stock (default: 10%)
+BOOST_COST_AGREEMENT=1.08      # Boost for products with cost agreements (default: 8%)
+
+# Similarity classification thresholds (enterprise-grade for 1M+ products/month)
+SIMILARITY_EXACTO_THRESHOLD=0.98      # Exact match threshold (default: 0.98)
+SIMILARITY_EQUIVALENTE_THRESHOLD=0.94 # Equivalent function threshold (default: 0.94)
+SIMILARITY_COMPATIBLE_THRESHOLD=0.88  # Compatible purpose threshold (default: 0.88)
+SIMILARITY_ALTERNATIVO_THRESHOLD=0.82 # Alternative option threshold (default: 0.82)
 ```
 
 ### API Endpoints

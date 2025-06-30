@@ -84,6 +84,14 @@ export class SearchService implements OnModuleDestroy {
       costAgreement: parseFloat(this.configService.get<string>('BOOST_COST_AGREEMENT') || '1.15')
     };
 
+    // Configurar thresholds de similitud desde variables de entorno
+    this.similarityThresholds = {
+      exacto: parseFloat(this.configService.get<string>('SIMILARITY_EXACTO_THRESHOLD') || '0.98'),
+      equivalente: parseFloat(this.configService.get<string>('SIMILARITY_EQUIVALENTE_THRESHOLD') || '0.94'),
+      compatible: parseFloat(this.configService.get<string>('SIMILARITY_COMPATIBLE_THRESHOLD') || '0.88'),
+      alternativo: parseFloat(this.configService.get<string>('SIMILARITY_ALTERNATIVO_THRESHOLD') || '0.82')
+    };
+
     this.logger.log(
       `SearchService initialized with model=${this.embeddingModel}, probes=${this.probes}, table=${this.productTable}, dimensions=${this.vectorDimensions}`,
       SearchService.name
@@ -91,6 +99,11 @@ export class SearchService implements OnModuleDestroy {
     
     this.logger.log(
       `Boost weights: Segment preferred=${this.boostWeights.segmentPreferred}, compatible=${this.boostWeights.segmentCompatible}, stock=${this.boostWeights.stock}, cost=${this.boostWeights.costAgreement}`,
+      SearchService.name
+    );
+    
+    this.logger.log(
+      `Similarity thresholds: Exacto>=${this.similarityThresholds.exacto}, Equivalente>=${this.similarityThresholds.equivalente}, Compatible>=${this.similarityThresholds.compatible}, Alternativo>=${this.similarityThresholds.alternativo}`,
       SearchService.name
     );
 
@@ -528,6 +541,24 @@ export class SearchService implements OnModuleDestroy {
       );
       throw error;
     }
+  }
+
+  // Clasifica la similitud basada en thresholds configurables
+  // Método profesional y escalable para 1M+ productos/mes
+  private classifySimilarityByThreshold(adjustedSimilarity: number): string {
+    if (adjustedSimilarity >= this.similarityThresholds.exacto) {
+      return "EXACTO";
+    }
+    if (adjustedSimilarity >= this.similarityThresholds.equivalente) {
+      return "EQUIVALENTE";
+    }
+    if (adjustedSimilarity >= this.similarityThresholds.compatible) {
+      return "COMPATIBLE";
+    }
+    if (adjustedSimilarity >= this.similarityThresholds.alternativo) {
+      return "ALTERNATIVO";
+    }
+    return "DISTINTO";
   }
 
   // Helper para crear boost summary vacío
@@ -1341,17 +1372,19 @@ INSTRUCCIONES:
         boost_weights_used: this.boostWeights
       };
 
-      // Determinar similitud final (usar la del ganador para consistencia)
-      let finalSimilitud = "EXACTO"; // Por defecto para casos híbridos exitosos
-      if (selectedProduct.adjustedSimilarity < 0.85) {
-        finalSimilitud = "DISTINTO";
-      } else if (selectedProduct.adjustedSimilarity < 0.92) {
-        finalSimilitud = "ALTERNATIVO";
-      } else if (selectedProduct.adjustedSimilarity < 0.96) {
-        finalSimilitud = "COMPATIBLE";
-      } else if (selectedProduct.adjustedSimilarity < 0.98) {
-        finalSimilitud = "EQUIVALENTE";
-      }
+      // Determinar similitud final usando thresholds configurables
+      const finalSimilitud = this.classifySimilarityByThreshold(selectedProduct.adjustedSimilarity);
+      
+      this.logger.log(
+        `Clasificación por threshold: similaridad=${selectedProduct.adjustedSimilarity.toFixed(4)} → ${finalSimilitud}`,
+        SearchService.name,
+        { 
+          product_code: selectedProduct.codigo,
+          adjusted_similarity: selectedProduct.adjustedSimilarity,
+          classification: finalSimilitud,
+          selection_method: selectionMethod
+        }
+      );
 
       const totalTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
 
