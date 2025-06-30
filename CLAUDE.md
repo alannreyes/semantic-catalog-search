@@ -82,6 +82,12 @@ VECTOR_DIMENSIONS=1024  # Embedding vector size
 PGVECTOR_PROBES=15   # Search optimization parameter
 ALLOWED_ORIGINS      # CORS allowed origins (comma-separated)
 
+# Boost System Configuration (optional)
+BOOST_SEGMENT_PREFERRED=1.30    # Boost for preferred segment (default 30%)
+BOOST_SEGMENT_COMPATIBLE=1.20   # Boost for compatible segments (default 20%)
+BOOST_STOCK=1.25                # Boost for products in stock (default 25%)
+BOOST_COST_AGREEMENT=1.15       # Boost for cost agreements (default 15%)
+
 # MS SQL (for migration)
 MSSQL_USER
 MSSQL_PASSWORD

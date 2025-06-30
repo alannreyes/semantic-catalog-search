@@ -22,6 +22,14 @@ export class SearchService implements OnModuleDestroy {
   private readonly embeddingModel: string;
   private readonly productTable: string;
   private readonly vectorDimensions: number;
+  
+  // Configuración de pesos para boost system
+  private readonly boostWeights: {
+    segmentPreferred: number;
+    segmentCompatible: number;
+    stock: number;
+    costAgreement: number;
+  };
 
   constructor(
     private configService: ConfigService,
@@ -60,8 +68,21 @@ export class SearchService implements OnModuleDestroy {
       10
     );
 
+    // Configurar pesos de boost desde variables de entorno
+    this.boostWeights = {
+      segmentPreferred: parseFloat(this.configService.get<string>('BOOST_SEGMENT_PREFERRED') || '1.30'),
+      segmentCompatible: parseFloat(this.configService.get<string>('BOOST_SEGMENT_COMPATIBLE') || '1.20'),
+      stock: parseFloat(this.configService.get<string>('BOOST_STOCK') || '1.25'),
+      costAgreement: parseFloat(this.configService.get<string>('BOOST_COST_AGREEMENT') || '1.15')
+    };
+
     this.logger.log(
       `SearchService initialized with model=${this.embeddingModel}, probes=${this.probes}, table=${this.productTable}, dimensions=${this.vectorDimensions}`,
+      SearchService.name
+    );
+    
+    this.logger.log(
+      `Boost weights: Segment preferred=${this.boostWeights.segmentPreferred}, compatible=${this.boostWeights.segmentCompatible}, stock=${this.boostWeights.stock}, cost=${this.boostWeights.costAgreement}`,
       SearchService.name
     );
 
@@ -364,6 +385,8 @@ export class SearchService implements OnModuleDestroy {
              p.marca, 
              COALESCE(m.segment, 'standard') as segment,
              p.codigo_fabrica, 
+             p.articulo_stock,
+             p.lista_costos,
              1 - (p.embedding <=> $1::vector) AS similarity 
            FROM ${this.productTable} p
            LEFT JOIN marcas m ON UPPER(TRIM(p.marca)) = UPPER(TRIM(m.marca))
@@ -394,6 +417,16 @@ export class SearchService implements OnModuleDestroy {
           codigo: null, 
           descripcion: null, 
           similitud: "DISTINTO",
+          marca: null,
+          segment: 'standard',
+          articulo_stock: false,
+          lista_costos: false,
+          boost_info: {
+            segment: { applied: false, percentage: 0 },
+            stock: { applied: false, percentage: 0 },
+            cost_agreement: { applied: false, percentage: 0 },
+            total_boost: 0
+          },
           timings: {
             embedding_time_ms: embeddingTime,
             vector_search_time_ms: vectorSearchTime,
@@ -483,6 +516,8 @@ export class SearchService implements OnModuleDestroy {
         const productMarca = (product.marca || 'N/A').trim();
         const productSegment = (product.segment || 'standard').trim();
         const productCodFabrica = (product.codigo_fabrica || '').trim();
+        const hasStock = Boolean(product.articulo_stock);
+        const hasCostAgreement = Boolean(product.lista_costos);
 
         return {
           index: index + 1,
@@ -491,47 +526,88 @@ export class SearchService implements OnModuleDestroy {
           marca: productMarca,
           segment: productSegment,
           codigo_fabrica: productCodFabrica,
+          articulo_stock: hasStock,
+          lista_costos: hasCostAgreement,
           vectorSimilarity: Number(product.similarity || 0).toFixed(4),
           adjustedSimilarity: undefined as string | undefined,
-          segmentBoost: undefined as string | undefined
+          boostInfo: {
+            segment: { applied: false, percentage: 0 },
+            stock: { applied: false, percentage: 0 },
+            cost_agreement: { applied: false, percentage: 0 },
+            total_boost: 0
+          }
         };
       });
 
-      // --- SISTEMA DE BOOST POR SEGMENTO ---
-      // Aplica multiplicadores de similaridad según preferencia de segmento (premium, standard, economy)
-      if (segment) {
-        this.logger.log(`APLICANDO BOOST PARA SEGMENTO: ${segment}`, SearchService.name);
+      // --- SISTEMA DE BOOST INTEGRAL ---
+      // Aplica multiplicadores de similaridad por segmento, stock y acuerdos de costos
+      this.logger.log(`APLICANDO BOOST INTEGRAL - Segmento: ${segment || 'none'}`, SearchService.name);
+      
+      productsForGPT.forEach(product => {
+        let totalMultiplier = 1.0;
         
-        productsForGPT.forEach(product => {
-          let segmentMultiplier = 1.0;
+        // 1. BOOST POR SEGMENTO
+        let segmentMultiplier = 1.0;
+        if (segment) {
           if (product.segment === segment) {
-            segmentMultiplier = 1.3; // Boost moderado del 30% para segmento preferido
+            segmentMultiplier = this.boostWeights.segmentPreferred;
+            product.boostInfo.segment.applied = true;
+            product.boostInfo.segment.percentage = Math.round((segmentMultiplier - 1.0) * 100);
           } else if (
             (segment === 'premium' && product.segment === 'standard') ||
             (segment === 'economy' && product.segment === 'standard') ||
             (segment === 'standard' && (product.segment === 'premium' || product.segment === 'economy'))
           ) {
-            segmentMultiplier = 1.2; // Boost del 20% para segmentos compatibles
+            segmentMultiplier = this.boostWeights.segmentCompatible;
+            product.boostInfo.segment.applied = true;
+            product.boostInfo.segment.percentage = Math.round((segmentMultiplier - 1.0) * 100);
           }
-          
-          const originalSimilarity = parseFloat(product.vectorSimilarity);
-          const boostedSimilarity = Math.min(1.0, originalSimilarity * segmentMultiplier);
-          product.adjustedSimilarity = boostedSimilarity.toFixed(4);
-          product.segmentBoost = ((segmentMultiplier - 1.0) * 100).toFixed(1) + '%';
+        }
+        
+        // 2. BOOST POR STOCK (productos de alta rotación)
+        let stockMultiplier = 1.0;
+        if (product.articulo_stock) {
+          stockMultiplier = this.boostWeights.stock;
+          product.boostInfo.stock.applied = true;
+          product.boostInfo.stock.percentage = Math.round((stockMultiplier - 1.0) * 100);
+        }
+        
+        // 3. BOOST POR ACUERDOS DE COSTOS (proveedores preferenciales)
+        let costMultiplier = 1.0;
+        if (product.lista_costos) {
+          costMultiplier = this.boostWeights.costAgreement;
+          product.boostInfo.cost_agreement.applied = true;
+          product.boostInfo.cost_agreement.percentage = Math.round((costMultiplier - 1.0) * 100);
+        }
+        
+        // Calcular multiplicador total y aplicar
+        totalMultiplier = segmentMultiplier * stockMultiplier * costMultiplier;
+        product.boostInfo.total_boost = Math.round((totalMultiplier - 1.0) * 100);
+        
+        const originalSimilarity = parseFloat(product.vectorSimilarity);
+        const boostedSimilarity = Math.min(1.0, originalSimilarity * totalMultiplier);
+        product.adjustedSimilarity = boostedSimilarity.toFixed(4);
+        
+        // Log solo si hay boost aplicado
+        if (totalMultiplier > 1.0) {
+          const boostDetails = [];
+          if (product.boostInfo.segment.applied) boostDetails.push(`Segmento: +${product.boostInfo.segment.percentage}%`);
+          if (product.boostInfo.stock.applied) boostDetails.push(`Stock: +${product.boostInfo.stock.percentage}%`);
+          if (product.boostInfo.cost_agreement.applied) boostDetails.push(`Costos: +${product.boostInfo.cost_agreement.percentage}%`);
           
           this.logger.log(
-            `BOOST APLICADO: ${product.marca} (${product.segment}) - Original: ${originalSimilarity} -> Boosted: ${boostedSimilarity} (x${segmentMultiplier})`,
+            `BOOST ${product.codigo}: ${originalSimilarity} -> ${boostedSimilarity} (${boostDetails.join(', ')}) Total: +${product.boostInfo.total_boost}%`,
             SearchService.name
           );
-        });
+        }
+      });
 
-        // Reordenar productos por similaridad ajustada
-        productsForGPT.sort((a, b) => {
-          const aScore = parseFloat(a.adjustedSimilarity || a.vectorSimilarity);
-          const bScore = parseFloat(b.adjustedSimilarity || b.vectorSimilarity);
-          return bScore - aScore;
-        });
-      }
+      // Reordenar productos por similaridad ajustada
+      productsForGPT.sort((a, b) => {
+        const aScore = parseFloat(a.adjustedSimilarity || a.vectorSimilarity);
+        const bScore = parseFloat(b.adjustedSimilarity || b.vectorSimilarity);
+        return bScore - aScore;
+      });
 
       // Preparar candidatos
       const candidatos = {};
@@ -543,25 +619,39 @@ export class SearchService implements OnModuleDestroy {
         candidatos[`DA${candidateIndex}`] = products[i].descripcion || '';
       }
 
-      let segmentInstructions = '';
-      if (segment) {
-        segmentInstructions = `
-IMPORTANTE - PREFERENCIA DE SEGMENTO:
-El usuario solicitó específicamente productos del segmento '${segment}'. 
-Orden de preferencia:
-${segment === 'premium' ? '1. premium (+30% boost) 2. standard (+20% boost) 3. economy (sin boost)' : 
-  segment === 'standard' ? '1. standard (+30% boost) 2. premium/economy (+20% boost)' : 
-  '1. economy (+30% boost) 2. standard (+20% boost) 3. premium (sin boost)'}
+      let boostInstructions = '';
+      if (segment || productsForGPT.some(p => p.boostInfo.total_boost > 0)) {
+        const segmentPreferredPct = Math.round((this.boostWeights.segmentPreferred - 1.0) * 100);
+        const segmentCompatiblePct = Math.round((this.boostWeights.segmentCompatible - 1.0) * 100);
+        const stockPct = Math.round((this.boostWeights.stock - 1.0) * 100);
+        const costPct = Math.round((this.boostWeights.costAgreement - 1.0) * 100);
+        
+        boostInstructions = `
+SISTEMA DE BOOST APLICADO:
+- Segmento preferido: +${segmentPreferredPct}% | Segmento compatible: +${segmentCompatiblePct}%
+- Productos en stock (alta rotación): +${stockPct}%
+- Acuerdos con proveedores: +${costPct}%
+- Los boosts se multiplican entre sí
 
-IMPORTANTE: Considera las puntuaciones ADJUSTED_SIMILARITY - ya incluyen la preferencia de segmento.`;
+${segment ? `PREFERENCIA DE SEGMENTO SOLICITADA: '${segment}'` : ''}
+IMPORTANTE: Considera las puntuaciones ADJUSTED - ya incluyen todos los boosts aplicados.`;
       }
 
       const productList = productsForGPT.map(p => {
-        const similarityDisplay = segment && p.adjustedSimilarity 
-          ? `SIMILARITY: ${p.vectorSimilarity} | ADJUSTED_SIMILARITY: ${p.adjustedSimilarity} (boost: +${p.segmentBoost || '0.000'})`
+        // Construir información de boost
+        const boostDetails = [];
+        if (p.boostInfo.segment.applied) boostDetails.push(`SEG:+${p.boostInfo.segment.percentage}%`);
+        if (p.boostInfo.stock.applied) boostDetails.push(`STOCK:+${p.boostInfo.stock.percentage}%`);
+        if (p.boostInfo.cost_agreement.applied) boostDetails.push(`COST:+${p.boostInfo.cost_agreement.percentage}%`);
+        
+        const similarityDisplay = p.adjustedSimilarity 
+          ? `SIMILARITY: ${p.vectorSimilarity} | ADJUSTED: ${p.adjustedSimilarity}${boostDetails.length > 0 ? ` (${boostDetails.join(',')})` : ''}`
           : `SIMILARITY: ${p.vectorSimilarity}`;
         
-        return `${p.index}. CODE: ${p.codigo} | DESCRIPTION: "${p.text}" | BRAND: ${p.marca} | SEGMENT: ${p.segment} | FACTORY_CODE: ${p.codigo_fabrica} | ${similarityDisplay}`;
+        const stockIndicator = p.articulo_stock ? '[STOCK]' : '';
+        const costIndicator = p.lista_costos ? '[ACUERDO]' : '';
+        
+        return `${p.index}. CODE: ${p.codigo} | DESCRIPTION: "${p.text}" | BRAND: ${p.marca} | SEGMENT: ${p.segment} | FACTORY_CODE: ${p.codigo_fabrica} ${stockIndicator}${costIndicator} | ${similarityDisplay}`;
       }).join('\n');
 
       const prompt = `Analiza los productos y selecciona el mejor match para la búsqueda del usuario.
@@ -571,7 +661,7 @@ CONSULTA DEL USUARIO: "${originalQuery}"
 PRODUCTOS DISPONIBLES:
 ${productList}
 
-${segmentInstructions}
+${boostInstructions}
 
 ESCALA DE SIMILITUD:
 - EXACTO: Es exactamente lo que busca el usuario incluyendo misma marca y modelo
@@ -583,9 +673,9 @@ ESCALA DE SIMILITUD:
 INSTRUCCIONES:
 1. Analiza cada producto considerando: marca, modelo, características, código de fábrica
 2. Selecciona SOLO UN producto (el mejor match)
-3. Si se especificó preferencia de segmento, PRIORIZA las puntuaciones ADJUSTED_SIMILARITY
+3. PRIORIZA las puntuaciones ADJUSTED - ya incluyen todos los boosts (segmento, stock, acuerdos)
 4. Si se especificó marca o modelo, PRIORIZALO. 
-5. Las puntuaciones ajustadas ya incluyen la preferencia de segmento
+5. Productos [STOCK] tienen alta rotación, productos [ACUERDO] tienen condiciones preferenciales
 6. Responde ÚNICAMENTE con JSON válido:
 
 {
@@ -733,6 +823,9 @@ INSTRUCCIONES:
         similitud: gptDecision.similitud,
         marca: selectedProduct.marca,
         segment: selectedProduct.segment,
+        articulo_stock: selectedProduct.articulo_stock,
+        lista_costos: selectedProduct.lista_costos,
+        boost_info: selectedProduct.boostInfo,
         ...candidatos
       };
 
@@ -786,6 +879,14 @@ INSTRUCCIONES:
           similitud: "ALTERNATIVO",
           marca: productMarca,
           segment: productSegment,
+          articulo_stock: Boolean(products[0].articulo_stock),
+          lista_costos: Boolean(products[0].lista_costos),
+          boost_info: {
+            segment: { applied: false, percentage: 0 },
+            stock: { applied: false, percentage: 0 },
+            cost_agreement: { applied: false, percentage: 0 },
+            total_boost: 0
+          },
           ...candidatos
         };
       } catch (fallbackError) {
@@ -800,7 +901,15 @@ INSTRUCCIONES:
           descripcion: null,
           similitud: "DISTINTO",
           marca: null,
-          segment: 'standard'
+          segment: 'standard',
+          articulo_stock: false,
+          lista_costos: false,
+          boost_info: {
+            segment: { applied: false, percentage: 0 },
+            stock: { applied: false, percentage: 0 },
+            cost_agreement: { applied: false, percentage: 0 },
+            total_boost: 0
+          }
         };
       }
     }
