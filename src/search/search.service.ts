@@ -759,18 +759,19 @@ ${boostInstructions}
 
 ESCALA DE SIMILITUD:
 - EXACTO: Es exactamente lo que busca el usuario incluyendo misma marca y modelo
-- EQUIVALENTE: Cumple la misma función con especificaciones similares
-- COMPATIBLE: Funciona para el mismo propósito
-- ALTERNATIVO: Puede servir pero con diferencias
-- DISTINTO: No es lo que busca
+- EQUIVALENTE: Cumple exactamente la misma función principal, aunque tenga diferente nombre, marca o especificaciones (ej: "lapicero"="bolígrafo"="pluma", "taladro"="drill", "pintura"="pintura latex")
+- COMPATIBLE: Funciona para el mismo propósito con diferencias menores de especificación
+- ALTERNATIVO: Puede servir pero con diferencias significativas en función o especificación
+- DISTINTO: No cumple la función que busca el usuario
 
 INSTRUCCIONES:
-1. Analiza cada producto considerando: marca, modelo, características, código de fábrica
-2. Selecciona SOLO UN producto (el mejor match)
-3. PRIORIZA las puntuaciones ADJUSTED - ya incluyen todos los boosts (segmento, stock, acuerdos)
-4. Si se especificó marca o modelo, PRIORIZALO. 
-5. Productos [STOCK] tienen alta rotación, productos [ACUERDO] tienen condiciones preferenciales
-6. Responde ÚNICAMENTE con JSON válido:
+1. PRIORIZA LA FUNCIÓN sobre el nombre exacto: "lapicero azul" incluye bolígrafos, plumas, marcadores de escritura azules
+2. Analiza cada producto considerando: función principal, marca, modelo, características, código de fábrica
+3. Selecciona SOLO UN producto (el mejor match)
+4. PRIORIZA las puntuaciones ADJUSTED - ya incluyen todos los boosts (segmento, stock, acuerdos)
+5. Si se especificó marca o modelo específico, PRIORIZALO
+6. Productos [STOCK] tienen alta rotación, productos [ACUERDO] tienen condiciones preferenciales
+7. Responde ÚNICAMENTE con JSON válido:
 
 {
   "selectedIndex": 1,
