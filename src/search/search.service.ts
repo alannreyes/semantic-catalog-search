@@ -427,6 +427,7 @@ export class SearchService implements OnModuleDestroy {
             cost_agreement: { applied: false, percentage: 0 },
             total_boost: 0
           },
+          boost_summary: this.createEmptyBoostSummary(),
           timings: {
             embedding_time_ms: embeddingTime,
             vector_search_time_ms: vectorSearchTime,
@@ -486,6 +487,22 @@ export class SearchService implements OnModuleDestroy {
     }
   }
 
+  // Helper para crear boost summary vacío
+  private createEmptyBoostSummary() {
+    return {
+      segment_boosted: [],
+      stock_boosted: [],
+      cost_agreement_boosted: [],
+      total_candidates: 0,
+      boost_weights_used: {
+        segment_preferred: this.boostWeights.segmentPreferred,
+        segment_compatible: this.boostWeights.segmentCompatible,
+        stock: this.boostWeights.stock,
+        cost_agreement: this.boostWeights.costAgreement
+      }
+    };
+  }
+
   // Aplica inteligencia artificial para seleccionar el mejor producto
   // Analiza productos candidatos, aplica boost por segmento de marca,
   // y usa GPT-4o para tomar la decision final considerando contexto y preferencias del usuario.
@@ -500,7 +517,12 @@ export class SearchService implements OnModuleDestroy {
     
     if (!products || products.length === 0) {
       this.logger.warn('No hay productos para procesar con GPT', SearchService.name);
-      return { codigo: null, descripcion: null, similitud: "DISTINTO" };
+      return { 
+        codigo: null, 
+        descripcion: null, 
+        similitud: "DISTINTO",
+        boost_summary: this.createEmptyBoostSummary()
+      };
     }
 
     try {
@@ -608,6 +630,20 @@ export class SearchService implements OnModuleDestroy {
         const bScore = parseFloat(b.adjustedSimilarity || b.vectorSimilarity);
         return bScore - aScore;
       });
+
+      // Recopilar información de boost por tipo para todos los candidatos
+      const boostSummary = {
+        segment_boosted: productsForGPT.filter(p => p.boostInfo.segment.applied).map(p => p.codigo),
+        stock_boosted: productsForGPT.filter(p => p.boostInfo.stock.applied).map(p => p.codigo),
+        cost_agreement_boosted: productsForGPT.filter(p => p.boostInfo.cost_agreement.applied).map(p => p.codigo),
+        total_candidates: productsForGPT.length,
+        boost_weights_used: {
+          segment_preferred: this.boostWeights.segmentPreferred,
+          segment_compatible: this.boostWeights.segmentCompatible,
+          stock: this.boostWeights.stock,
+          cost_agreement: this.boostWeights.costAgreement
+        }
+      };
 
       // Preparar candidatos
       const candidatos = {};
@@ -826,6 +862,7 @@ INSTRUCCIONES:
         articulo_stock: selectedProduct.articulo_stock,
         lista_costos: selectedProduct.lista_costos,
         boost_info: selectedProduct.boostInfo,
+        boost_summary: boostSummary,
         ...candidatos
       };
 
@@ -887,6 +924,7 @@ INSTRUCCIONES:
             cost_agreement: { applied: false, percentage: 0 },
             total_boost: 0
           },
+          boost_summary: this.createEmptyBoostSummary(),
           ...candidatos
         };
       } catch (fallbackError) {
@@ -909,7 +947,8 @@ INSTRUCCIONES:
             stock: { applied: false, percentage: 0 },
             cost_agreement: { applied: false, percentage: 0 },
             total_boost: 0
-          }
+          },
+          boost_summary: this.createEmptyBoostSummary()
         };
       }
     }
