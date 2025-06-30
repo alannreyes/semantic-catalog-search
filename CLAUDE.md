@@ -82,11 +82,20 @@ VECTOR_DIMENSIONS=1024  # Embedding vector size
 PGVECTOR_PROBES=15   # Search optimization parameter
 ALLOWED_ORIGINS      # CORS allowed origins (comma-separated)
 
-# Boost System Configuration (optional)
+# Boost System Configuration (optional) 
 BOOST_SEGMENT_PREFERRED=1.30    # Boost for preferred segment (default 30%)
 BOOST_SEGMENT_COMPATIBLE=1.20   # Boost for compatible segments (default 20%)
 BOOST_STOCK=1.25                # Boost for products in stock (default 25%)
 BOOST_COST_AGREEMENT=1.15       # Boost for cost agreements (default 15%)
+BOOST_BRAND_EXACT=1.20          # Boost when brand is mentioned in query (default 20%)
+BOOST_MODEL_EXACT=1.15          # Boost when model/code is mentioned in query (default 15%)
+BOOST_SIZE_EXACT=1.10           # Boost for size/dimension matching (default 10%)
+
+# Similarity Thresholds Configuration (optional)
+SIMILARITY_EXACTO_THRESHOLD=0.90        # Threshold for EXACTO classification
+SIMILARITY_EQUIVALENTE_THRESHOLD=0.70   # Threshold for EQUIVALENTE classification  
+SIMILARITY_COMPATIBLE_THRESHOLD=0.88    # Threshold for COMPATIBLE classification
+SIMILARITY_ALTERNATIVO_THRESHOLD=0.82   # Threshold for ALTERNATIVO classification
 
 # MS SQL (for migration)
 MSSQL_USER
@@ -94,17 +103,6 @@ MSSQL_PASSWORD
 MSSQL_SERVER
 MSSQL_DATABASE
 
-# Boost system configuration
-BOOST_SEGMENT_PREFERRED=1.05   # Boost for exact segment match (default: 5%)
-BOOST_SEGMENT_COMPATIBLE=1.03  # Boost for compatible segment (default: 3%)
-BOOST_STOCK=1.10               # Boost for products with stock (default: 10%)
-BOOST_COST_AGREEMENT=1.08      # Boost for products with cost agreements (default: 8%)
-
-# Similarity classification thresholds (enterprise-grade for 1M+ products/month)
-SIMILARITY_EXACTO_THRESHOLD=0.98      # Exact match threshold (default: 0.98)
-SIMILARITY_EQUIVALENTE_THRESHOLD=0.94 # Equivalent function threshold (default: 0.94)
-SIMILARITY_COMPATIBLE_THRESHOLD=0.88  # Compatible purpose threshold (default: 0.88)
-SIMILARITY_ALTERNATIVO_THRESHOLD=0.82 # Alternative option threshold (default: 0.82)
 ```
 
 ### API Endpoints

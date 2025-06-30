@@ -29,6 +29,9 @@ export class SearchService implements OnModuleDestroy {
     segmentCompatible: number;
     stock: number;
     costAgreement: number;
+    brandExact: number;
+    modelExact: number;
+    sizeExact: number;
   };
   
   // Configuración de thresholds para clasificación de similitud
@@ -81,7 +84,10 @@ export class SearchService implements OnModuleDestroy {
       segmentPreferred: parseFloat(this.configService.get<string>('BOOST_SEGMENT_PREFERRED') || '1.30'),
       segmentCompatible: parseFloat(this.configService.get<string>('BOOST_SEGMENT_COMPATIBLE') || '1.20'),
       stock: parseFloat(this.configService.get<string>('BOOST_STOCK') || '1.25'),
-      costAgreement: parseFloat(this.configService.get<string>('BOOST_COST_AGREEMENT') || '1.15')
+      costAgreement: parseFloat(this.configService.get<string>('BOOST_COST_AGREEMENT') || '1.15'),
+      brandExact: parseFloat(this.configService.get<string>('BOOST_BRAND_EXACT') || '1.20'),
+      modelExact: parseFloat(this.configService.get<string>('BOOST_MODEL_EXACT') || '1.15'),
+      sizeExact: parseFloat(this.configService.get<string>('BOOST_SIZE_EXACT') || '1.10')
     };
 
     // Configurar thresholds de similitud desde variables de entorno
@@ -98,7 +104,7 @@ export class SearchService implements OnModuleDestroy {
     );
     
     this.logger.log(
-      `Boost weights: Segment preferred=${this.boostWeights.segmentPreferred}, compatible=${this.boostWeights.segmentCompatible}, stock=${this.boostWeights.stock}, cost=${this.boostWeights.costAgreement}`,
+      `Boost weights: Segment preferred=${this.boostWeights.segmentPreferred}, compatible=${this.boostWeights.segmentCompatible}, stock=${this.boostWeights.stock}, cost=${this.boostWeights.costAgreement}, brand=${this.boostWeights.brandExact}, model=${this.boostWeights.modelExact}`,
       SearchService.name
     );
     
@@ -653,6 +659,9 @@ export class SearchService implements OnModuleDestroy {
             segment: { applied: false, percentage: 0 },
             stock: { applied: false, percentage: 0 },
             cost_agreement: { applied: false, percentage: 0 },
+            brand_exact: { applied: false, percentage: 0 },
+            model_exact: { applied: false, percentage: 0 },
+            size_exact: { applied: false, percentage: 0 },
             total_boost: 0
           }
         };
@@ -699,8 +708,24 @@ export class SearchService implements OnModuleDestroy {
           product.boostInfo.cost_agreement.percentage = Math.round((costMultiplier - 1.0) * 100);
         }
         
+        // 4. BOOST POR MARCA EXACTA (cuando se menciona marca específica)
+        let brandMultiplier = 1.0;
+        if (product.marca && this.queryMentionsBrand(originalQuery, product.marca)) {
+          brandMultiplier = this.boostWeights.brandExact;
+          product.boostInfo.brand_exact.applied = true;
+          product.boostInfo.brand_exact.percentage = Math.round((brandMultiplier - 1.0) * 100);
+        }
+        
+        // 5. BOOST POR MODELO EXACTO (cuando se menciona código de fábrica específico)
+        let modelMultiplier = 1.0;
+        if (product.codigo_fabrica && this.queryMentionsModel(originalQuery, product.codigo_fabrica)) {
+          modelMultiplier = this.boostWeights.modelExact;
+          product.boostInfo.model_exact.applied = true;
+          product.boostInfo.model_exact.percentage = Math.round((modelMultiplier - 1.0) * 100);
+        }
+        
         // Calcular multiplicador total y aplicar
-        totalMultiplier = segmentMultiplier * stockMultiplier * costMultiplier;
+        totalMultiplier = segmentMultiplier * stockMultiplier * costMultiplier * brandMultiplier * modelMultiplier;
         product.boostInfo.total_boost = Math.round((totalMultiplier - 1.0) * 100);
         
         const originalSimilarity = parseFloat(product.vectorSimilarity);
@@ -713,6 +738,8 @@ export class SearchService implements OnModuleDestroy {
           if (product.boostInfo.segment.applied) boostDetails.push(`Segmento: +${product.boostInfo.segment.percentage}%`);
           if (product.boostInfo.stock.applied) boostDetails.push(`Stock: +${product.boostInfo.stock.percentage}%`);
           if (product.boostInfo.cost_agreement.applied) boostDetails.push(`Costos: +${product.boostInfo.cost_agreement.percentage}%`);
+          if (product.boostInfo.brand_exact.applied) boostDetails.push(`Marca: +${product.boostInfo.brand_exact.percentage}%`);
+          if (product.boostInfo.model_exact.applied) boostDetails.push(`Modelo: +${product.boostInfo.model_exact.percentage}%`);
           
           this.logger.log(
             `BOOST ${product.codigo}: ${originalSimilarity} -> ${boostedSimilarity} (${boostDetails.join(', ')}) Total: +${product.boostInfo.total_boost}%`,
@@ -776,6 +803,8 @@ IMPORTANTE: Considera las puntuaciones ADJUSTED - ya incluyen todos los boosts a
         if (p.boostInfo.segment.applied) boostDetails.push(`SEG:+${p.boostInfo.segment.percentage}%`);
         if (p.boostInfo.stock.applied) boostDetails.push(`STOCK:+${p.boostInfo.stock.percentage}%`);
         if (p.boostInfo.cost_agreement.applied) boostDetails.push(`COST:+${p.boostInfo.cost_agreement.percentage}%`);
+        if (p.boostInfo.brand_exact.applied) boostDetails.push(`BRAND:+${p.boostInfo.brand_exact.percentage}%`);
+        if (p.boostInfo.model_exact.applied) boostDetails.push(`MODEL:+${p.boostInfo.model_exact.percentage}%`);
         
         const similarityDisplay = p.adjustedSimilarity 
           ? `SIMILARITY: ${p.vectorSimilarity} | ADJUSTED: ${p.adjustedSimilarity}${boostDetails.length > 0 ? ` (${boostDetails.join(',')})` : ''}`
@@ -957,6 +986,8 @@ INSTRUCCIONES:
         if (product.boostInfo.stock.applied) boostTags.push('stock');
         if (product.boostInfo.cost_agreement.applied) boostTags.push('cost');
         if (product.boostInfo.segment.applied) boostTags.push('segment');
+        if (product.boostInfo.brand_exact.applied) boostTags.push('brand');
+        if (product.boostInfo.model_exact.applied) boostTags.push('model');
         
         return {
           codigo: product.codigo,
@@ -1221,6 +1252,9 @@ INSTRUCCIONES:
             segment: { applied: segmentMultiplier > 1.0, percentage: Math.round((segmentMultiplier - 1.0) * 100) },
             stock: { applied: hasStock, percentage: Math.round((stockMultiplier - 1.0) * 100) },
             cost_agreement: { applied: hasCostAgreement, percentage: Math.round((costMultiplier - 1.0) * 100) },
+            brand_exact: { applied: false, percentage: 0 },
+            model_exact: { applied: false, percentage: 0 },
+            size_exact: { applied: false, percentage: 0 },
             total_boost: Math.round((totalMultiplier - 1.0) * 100)
           }
         };
@@ -1539,6 +1573,29 @@ INSTRUCCIONES:
       this.logger.warn(`Falló la normalización GPT, usando query original: "${query}"`, SearchService.name);
       return query;
     }
+  }
+
+  // Verifica si la query menciona una marca específica
+  private queryMentionsBrand(query: string, brand: string): boolean {
+    if (!brand || brand.trim() === '') return false;
+    
+    const normalizedQuery = query.toLowerCase().trim();
+    const normalizedBrand = brand.toLowerCase().trim();
+    
+    // Buscar marca exacta como palabra completa
+    const brandRegex = new RegExp(`\\b${normalizedBrand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    return brandRegex.test(normalizedQuery);
+  }
+  
+  // Verifica si la query menciona un modelo/código de fábrica específico
+  private queryMentionsModel(query: string, model: string): boolean {
+    if (!model || model.trim() === '') return false;
+    
+    const normalizedQuery = query.toLowerCase().trim();
+    const normalizedModel = model.toLowerCase().trim();
+    
+    // Buscar modelo exacto como palabra completa o substring (códigos pueden ser alfanuméricos)
+    return normalizedQuery.includes(normalizedModel);
   }
 
   async getDebugConfig() {
