@@ -143,20 +143,20 @@ export class SearchService implements OnModuleDestroy {
       const initialResult = await this.performSemanticSearch(expandedQuery, limit, client, segment, query);
       const initialSearchEnd = process.hrtime.bigint();
       this.logger.log(
-        `Búsqueda semántica inicial completada. Similitud: ${initialResult.similitud}`,
+        `Búsqueda semántica inicial completada. Similitud: ${initialResult.query_info.similitud}`,
         SearchService.name,
         {
           duration_ms: Number(initialSearchEnd - initialSearchStart) / 1_000_000,
           query_text: query, 
-          similitud_resultado: initialResult.similitud,
+          similitud_resultado: initialResult.query_info.similitud,
           segment_used: segment 
         }
       );
 
       // --- EVALUACIÓN DE SIMILITUD ---
       // Si la similitud es alta (EXACTO/EQUIVALENTE), retorna sin normalización
-      if (["EXACTO", "EQUIVALENTE"].includes(initialResult.similitud)) {
-        this.logger.log(`Similitud alta detectada (${initialResult.similitud}), no se requiere normalización.`, SearchService.name);
+      if (["EXACTO", "EQUIVALENTE"].includes(initialResult.query_info.similitud)) {
+        this.logger.log(`Similitud alta detectada (${initialResult.query_info.similitud}), no se requiere normalización.`, SearchService.name);
         const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
         this.logger.log(`Búsqueda completada (sin normalización).`, SearchService.name, { duration_ms: totalTime });
         return { 
@@ -171,7 +171,7 @@ export class SearchService implements OnModuleDestroy {
 
       // --- NORMALIZACIÓN CON GPT-4o ---
       // Si la similitud es baja, normaliza el query para mejorar la búsqueda
-      this.logger.log(`Similitud baja (${initialResult.similitud}), activando normalización de query con GPT-4o.`, SearchService.name);
+      this.logger.log(`Similitud baja (${initialResult.query_info.similitud}), activando normalización de query con GPT-4o.`, SearchService.name);
 
       const normalizeStart = process.hrtime.bigint();
       const normalizedQuery = await Promise.race([
@@ -216,7 +216,7 @@ export class SearchService implements OnModuleDestroy {
         {
           duration_ms: Number(resultAfterNormalizationEnd - resultAfterNormalizationStart) / 1_000_000,
           query_text: normalizedQuery,
-          similitud_resultado: resultAfterNormalization.similitud,
+          similitud_resultado: resultAfterNormalization.query_info.similitud,
           segment_used_final: segment
         }
       );
@@ -461,7 +461,7 @@ export class SearchService implements OnModuleDestroy {
         SearchService.name,
         {
           duration_ms: Number(gptSelectionEnd - gptSelectionStart) / 1_000_000,
-          similitud_seleccionada: best.similitud,
+          similitud_seleccionada: best.query_info.similitud,
           segment_considered: segment
         }
       );
@@ -933,9 +933,9 @@ INSTRUCCIONES:
         boost_summary: enhancedBoostSummary,
         // Mantener compatibilidad con versión anterior
         timings: {
-          embedding_time_ms: embeddingTime,
-          vector_search_time_ms: vectorSearchTime,
-          gpt_selection_time_ms: gptSelectionTime
+          embedding_time_ms: 0,
+          vector_search_time_ms: 0,
+          gpt_selection_time_ms: Number(process.hrtime.bigint() - stepStartTime) / 1_000_000
         }
       };
 
