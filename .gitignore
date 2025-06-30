@@ -37,3 +37,9 @@ lerna-debug.log*
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+# Scripts locales y análisis
+/scripts-local/
+/analysis/
+*.local.js
+*-local.js
