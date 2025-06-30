@@ -154,9 +154,9 @@ export class SearchService implements OnModuleDestroy {
       );
 
       // --- EVALUACIÓN DE SIMILITUD ---
-      // Si la similitud es alta (EXACTO/EQUIVALENTE), retorna sin normalización
+      // Si la similitud es alta (EXACTO/EQUIVALENTE), respeta el boost ranking y retorna sin normalización
       if (["EXACTO", "EQUIVALENTE"].includes(initialResult.query_info.similitud)) {
-        this.logger.log(`Similitud alta detectada (${initialResult.query_info.similitud}), no se requiere normalización.`, SearchService.name);
+        this.logger.log(`Similitud alta detectada (${initialResult.query_info.similitud}), respetando boost ranking.`, SearchService.name);
         const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
         this.logger.log(`Búsqueda completada (sin normalización).`, SearchService.name, { duration_ms: totalTime });
         return { 
@@ -221,22 +221,48 @@ export class SearchService implements OnModuleDestroy {
         }
       );
 
+      // --- EVALUACIÓN DESPUÉS DE NORMALIZACIÓN ---
+      // Si después de normalización obtenemos EXACTO/EQUIVALENTE, usar boost ranking
+      // Si no, retornar selected_product: null con alternatives rankeadas
       const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
-      this.logger.log(
-        `Búsqueda de productos finalizada.`,
-        SearchService.name,
-        { duration_ms: totalTime }
-      );
-
-      return {
-        ...resultAfterNormalization,
-        normalizado: normalizedQuery,
-        timings: {
-          ...(resultAfterNormalization.timings || {}),
-          normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
-          total_time_ms: totalTime
-        }
-      };
+      
+      if (["EXACTO", "EQUIVALENTE"].includes(resultAfterNormalization.query_info.similitud)) {
+        this.logger.log(
+          `Normalización exitosa: ${resultAfterNormalization.query_info.similitud}, respetando boost ranking.`,
+          SearchService.name,
+          { duration_ms: totalTime }
+        );
+        
+        return {
+          ...resultAfterNormalization,
+          normalizado: normalizedQuery,
+          timings: {
+            ...(resultAfterNormalization.timings || {}),
+            normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
+            total_time_ms: totalTime
+          }
+        };
+      } else {
+        // No hay match exacto/equivalente después de normalización
+        this.logger.log(
+          `Sin match exacto después de normalización (${resultAfterNormalization.query_info.similitud}), retornando alternatives.`,
+          SearchService.name,
+          { duration_ms: totalTime }
+        );
+        
+        return {
+          query_info: resultAfterNormalization.query_info,
+          selected_product: null,
+          alternatives: resultAfterNormalization.alternatives,
+          boost_summary: resultAfterNormalization.boost_summary,
+          normalizado: normalizedQuery,
+          timings: {
+            ...(resultAfterNormalization.timings || {}),
+            normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
+            total_time_ms: totalTime
+          }
+        };
+      }
 
     } catch (error) {
       const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
