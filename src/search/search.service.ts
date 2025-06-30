@@ -30,6 +30,14 @@ export class SearchService implements OnModuleDestroy {
     stock: number;
     costAgreement: number;
   };
+  
+  // Configuración de thresholds para clasificación de similitud
+  private readonly similarityThresholds: {
+    exacto: number;
+    equivalente: number;
+    compatible: number;
+    alternativo: number;
+  };
 
   constructor(
     private configService: ConfigService,
