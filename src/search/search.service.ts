@@ -413,21 +413,29 @@ export class SearchService implements OnModuleDestroy {
       );
 
       if (result.rows.length === 0) {
-        return { 
-          codigo: null, 
-          descripcion: null, 
-          similitud: "DISTINTO",
-          marca: null,
-          segment: 'standard',
-          articulo_stock: false,
-          lista_costos: false,
-          boost_info: {
-            segment: { applied: false, percentage: 0 },
-            stock: { applied: false, percentage: 0 },
-            cost_agreement: { applied: false, percentage: 0 },
-            total_boost: 0
+        return {
+          query_info: {
+            similitud: "DISTINTO",
+            total_candidates: 0,
+            search_time_ms: Math.round((embeddingTime + vectorSearchTime))
           },
-          boost_summary: this.createEmptyBoostSummary(),
+          selected_product: {
+            codigo: null,
+            descripcion: null,
+            marca: null,
+            segment: 'standard',
+            has_stock: false,
+            has_cost_agreement: false,
+            boost_total_percent: 0,
+            boost_reasons: []
+          },
+          alternatives: [],
+          boost_summary: {
+            products_with_stock: [],
+            products_with_pricing: [],
+            segment_matches: [],
+            boost_weights_used: this.boostWeights
+          },
           timings: {
             embedding_time_ms: embeddingTime,
             vector_search_time_ms: vectorSearchTime,
@@ -517,11 +525,34 @@ export class SearchService implements OnModuleDestroy {
     
     if (!products || products.length === 0) {
       this.logger.warn('No hay productos para procesar con GPT', SearchService.name);
-      return { 
-        codigo: null, 
-        descripcion: null, 
-        similitud: "DISTINTO",
-        boost_summary: this.createEmptyBoostSummary()
+      return {
+        query_info: {
+          similitud: "DISTINTO",
+          total_candidates: 0,
+          search_time_ms: 0
+        },
+        selected_product: {
+          codigo: null,
+          descripcion: null,
+          marca: null,
+          segment: 'standard',
+          has_stock: false,
+          has_cost_agreement: false,
+          boost_total_percent: 0,
+          boost_reasons: []
+        },
+        alternatives: [],
+        boost_summary: {
+          products_with_stock: [],
+          products_with_pricing: [],
+          segment_matches: [],
+          boost_weights_used: this.boostWeights
+        },
+        timings: {
+          embedding_time_ms: 0,
+          vector_search_time_ms: 0,
+          gpt_selection_time_ms: 0
+        }
       };
     }
 
@@ -853,17 +884,59 @@ INSTRUCCIONES:
         }
       );
 
+      // Construir lista de alternativas en formato plano
+      const alternatives = productsForGPT.map((product, index) => {
+        const boostTags = [];
+        if (product.boostInfo.stock.applied) boostTags.push('stock');
+        if (product.boostInfo.cost_agreement.applied) boostTags.push('cost');
+        if (product.boostInfo.segment.applied) boostTags.push('segment');
+        
+        return {
+          codigo: product.codigo,
+          descripcion: product.text,
+          marca: product.marca,
+          rank: index + 1,
+          has_stock: product.articulo_stock,
+          has_cost_agreement: product.lista_costos,
+          segment: product.segment,
+          boost_percent: product.boostInfo.total_boost,
+          boost_tags: boostTags
+        };
+      });
+
+      // Construir boost summary con nombres más claros
+      const enhancedBoostSummary = {
+        products_with_stock: boostSummary.stock_boosted,
+        products_with_pricing: boostSummary.cost_agreement_boosted,
+        segment_matches: boostSummary.segment_boosted,
+        boost_weights_used: boostSummary.boost_weights_used
+      };
+
+      // Construir respuesta en formato plano y consumible
       return {
-        codigo: selectedProduct.codigo,
-        descripcion: selectedProduct.text,
-        similitud: gptDecision.similitud,
-        marca: selectedProduct.marca,
-        segment: selectedProduct.segment,
-        articulo_stock: selectedProduct.articulo_stock,
-        lista_costos: selectedProduct.lista_costos,
-        boost_info: selectedProduct.boostInfo,
-        boost_summary: boostSummary,
-        ...candidatos
+        query_info: {
+          similitud: gptDecision.similitud,
+          total_candidates: productsForGPT.length,
+          search_time_ms: Math.round(Number(process.hrtime.bigint() - stepStartTime) / 1_000_000)
+        },
+        selected_product: {
+          codigo: selectedProduct.codigo,
+          descripcion: selectedProduct.text,
+          marca: selectedProduct.marca,
+          segment: selectedProduct.segment,
+          has_stock: selectedProduct.articulo_stock,
+          has_cost_agreement: selectedProduct.lista_costos,
+          boost_total_percent: selectedProduct.boostInfo.total_boost,
+          boost_reasons: alternatives[0].boost_tags
+        },
+        alternatives: alternatives,
+        boost_summary: enhancedBoostSummary,
+        // Mantener compatibilidad con versión anterior
+        timings: {
+          embedding_time_ms: embeddingTime,
+          vector_search_time_ms: vectorSearchTime,
+          gpt_selection_time_ms: gptSelectionTime
+        }
       };
 
     } catch (error) {
@@ -910,22 +983,47 @@ INSTRUCCIONES:
           }
         );
 
+        // Construir alternativas de fallback
+        const fallbackAlternatives = products.slice(0, Math.min(products.length, limit || 5)).map((product, index) => ({
+          codigo: product.codigo || '',
+          descripcion: product.descripcion || '',
+          marca: product.marca || 'N/A',
+          rank: index + 1,
+          has_stock: Boolean(product.articulo_stock),
+          has_cost_agreement: Boolean(product.lista_costos),
+          segment: product.segment || 'standard',
+          boost_percent: 0,
+          boost_tags: []
+        }));
+
         return {
-          codigo: productCode,
-          descripcion: cleanText,
-          similitud: "ALTERNATIVO",
-          marca: productMarca,
-          segment: productSegment,
-          articulo_stock: Boolean(products[0].articulo_stock),
-          lista_costos: Boolean(products[0].lista_costos),
-          boost_info: {
-            segment: { applied: false, percentage: 0 },
-            stock: { applied: false, percentage: 0 },
-            cost_agreement: { applied: false, percentage: 0 },
-            total_boost: 0
+          query_info: {
+            similitud: "ALTERNATIVO",
+            total_candidates: products.length,
+            search_time_ms: Math.round(totalStepTime)
           },
-          boost_summary: this.createEmptyBoostSummary(),
-          ...candidatos
+          selected_product: {
+            codigo: productCode,
+            descripcion: cleanText,
+            marca: productMarca,
+            segment: productSegment,
+            has_stock: Boolean(products[0].articulo_stock),
+            has_cost_agreement: Boolean(products[0].lista_costos),
+            boost_total_percent: 0,
+            boost_reasons: []
+          },
+          alternatives: fallbackAlternatives,
+          boost_summary: {
+            products_with_stock: [],
+            products_with_pricing: [],
+            segment_matches: [],
+            boost_weights_used: this.boostWeights
+          },
+          timings: {
+            embedding_time_ms: 0,
+            vector_search_time_ms: 0,
+            gpt_selection_time_ms: totalStepTime
+          }
         };
       } catch (fallbackError) {
         this.logger.error(
@@ -935,20 +1033,33 @@ INSTRUCCIONES:
         );
         
         return {
-          codigo: null,
-          descripcion: null,
-          similitud: "DISTINTO",
-          marca: null,
-          segment: 'standard',
-          articulo_stock: false,
-          lista_costos: false,
-          boost_info: {
-            segment: { applied: false, percentage: 0 },
-            stock: { applied: false, percentage: 0 },
-            cost_agreement: { applied: false, percentage: 0 },
-            total_boost: 0
+          query_info: {
+            similitud: "DISTINTO",
+            total_candidates: 0,
+            search_time_ms: Math.round(totalStepTime)
           },
-          boost_summary: this.createEmptyBoostSummary()
+          selected_product: {
+            codigo: null,
+            descripcion: null,
+            marca: null,
+            segment: 'standard',
+            has_stock: false,
+            has_cost_agreement: false,
+            boost_total_percent: 0,
+            boost_reasons: []
+          },
+          alternatives: [],
+          boost_summary: {
+            products_with_stock: [],
+            products_with_pricing: [],
+            segment_matches: [],
+            boost_weights_used: this.boostWeights
+          },
+          timings: {
+            embedding_time_ms: 0,
+            vector_search_time_ms: 0,
+            gpt_selection_time_ms: totalStepTime
+          }
         };
       }
     }
