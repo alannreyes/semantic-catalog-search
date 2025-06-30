@@ -64,7 +64,8 @@ export class ResumeMigrationController {
     }
   }
 
-  @Get('pending/:limit?')
+  @Get('pending')
+  @Get('pending/:limit')
   async getPendingPreview(@Param('limit') limit?: string) {
     try {
       const progress = await this.resumeService.checkMigrationProgress();
