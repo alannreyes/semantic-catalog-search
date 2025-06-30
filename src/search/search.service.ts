@@ -470,10 +470,10 @@ export class SearchService implements OnModuleDestroy {
         };
       }
 
-      // --- SELECCIÓN INTELIGENTE CON GPT-4o ---
-      // Usa inteligencia artificial para seleccionar el mejor producto considerando contexto y preferencias
+      // --- SELECCIÓN HÍBRIDA INTELIGENTE ---
+      // Usa boost system + desempate automático + GPT solo cuando es necesario
       const gptSelectionStart = process.hrtime.bigint();
-      const best = await this.selectBestProductWithGPT(
+      const best = await this.selectBestProductHybrid(
         originalQueryOverride || inputText,
         result.rows,
         inputText,
@@ -483,12 +483,13 @@ export class SearchService implements OnModuleDestroy {
       const gptSelectionEnd = process.hrtime.bigint();
       gptSelectionTime = Number(gptSelectionEnd - gptSelectionStart) / 1_000_000;
       this.logger.log(
-        `Selección GPT completada.`,
+        `Selección híbrida completada.`,
         SearchService.name,
         {
           duration_ms: Number(gptSelectionEnd - gptSelectionStart) / 1_000_000,
           similitud_seleccionada: best.query_info.similitud,
-          segment_considered: segment
+          segment_considered: segment,
+          selection_method: best.selection_method || 'hybrid'
         }
       );
 
@@ -1088,6 +1089,326 @@ INSTRUCCIONES:
           }
         };
       }
+    }
+  }
+
+  // Selección híbrida: boost system + desempate automático + GPT solo para empates finales
+  // Implementa la lógica de priorización: similaridad ajustada > stock > acuerdo > segmento > GPT semántico
+  private async selectBestProductHybrid(
+    originalQuery: string,
+    products: any[],
+    normalizedQuery: string,
+    segment?: 'premium' | 'standard' | 'economy',
+    limit?: number
+  ) {
+    const stepStartTime = process.hrtime.bigint();
+    
+    if (!products || products.length === 0) {
+      this.logger.warn('No hay productos para procesar en híbrido', SearchService.name);
+      return {
+        query_info: {
+          similitud: "DISTINTO",
+          total_candidates: 0,
+          search_time_ms: 0
+        },
+        selected_product: {
+          codigo: null,
+          descripcion: null,
+          marca: null,
+          segment: 'standard',
+          has_stock: false,
+          has_cost_agreement: false,
+          boost_total_percent: 0,
+          boost_reasons: []
+        },
+        alternatives: [],
+        boost_summary: this.createEmptyBoostSummary(),
+        selection_method: 'empty'
+      };
+    }
+
+    try {
+      this.logger.log(
+        `Iniciando selección híbrida para: "${originalQuery}" con ${products.length} productos`,
+        SearchService.name,
+        { segment_preference: segment }
+      );
+
+      // --- PREPARAR PRODUCTOS CON BOOST ---
+      // Calcular boost y similaridad ajustada para todos los productos
+      const productsWithBoost = products.map((product, index) => {
+        const cleanText = (product.descripcion || '').trim();
+        const productCode = (product.codigo || '').trim();
+        const productMarca = (product.marca || 'N/A').trim();
+        const productSegment = (product.segment || 'standard').trim();
+        const hasStock = Boolean(product.articulo_stock);
+        const hasCostAgreement = Boolean(product.lista_costos);
+        const originalSimilarity = Number(product.similarity || 0);
+
+        // Calcular boost multiplicadores
+        let segmentMultiplier = 1.0;
+        if (segment) {
+          if (productSegment === segment) {
+            segmentMultiplier = this.boostWeights.segmentPreferred;
+          } else if (
+            (segment === 'premium' && productSegment === 'standard') ||
+            (segment === 'economy' && productSegment === 'standard') ||
+            (segment === 'standard' && (productSegment === 'premium' || productSegment === 'economy'))
+          ) {
+            segmentMultiplier = this.boostWeights.segmentCompatible;
+          }
+        } else {
+          segmentMultiplier = this.boostWeights.segmentPreferred; // Boost neutral
+        }
+
+        const stockMultiplier = hasStock ? this.boostWeights.stock : 1.0;
+        const costMultiplier = hasCostAgreement ? this.boostWeights.costAgreement : 1.0;
+        const totalMultiplier = segmentMultiplier * stockMultiplier * costMultiplier;
+        const adjustedSimilarity = Math.min(1.0, originalSimilarity * totalMultiplier);
+
+        return {
+          index: index + 1,
+          codigo: productCode,
+          text: cleanText,
+          marca: productMarca,
+          segment: productSegment,
+          articulo_stock: hasStock,
+          lista_costos: hasCostAgreement,
+          originalSimilarity,
+          adjustedSimilarity,
+          totalMultiplier,
+          boostInfo: {
+            segment: { applied: segmentMultiplier > 1.0, percentage: Math.round((segmentMultiplier - 1.0) * 100) },
+            stock: { applied: hasStock, percentage: Math.round((stockMultiplier - 1.0) * 100) },
+            cost_agreement: { applied: hasCostAgreement, percentage: Math.round((costMultiplier - 1.0) * 100) },
+            total_boost: Math.round((totalMultiplier - 1.0) * 100)
+          }
+        };
+      });
+
+      // --- ORDENAR POR SIMILARIDAD AJUSTADA ---
+      productsWithBoost.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
+
+      // --- DETECTAR EMPATES EN EL PRIMER PUESTO ---
+      const topSimilarity = productsWithBoost[0].adjustedSimilarity;
+      const tiedProducts = productsWithBoost.filter(p => 
+        Math.abs(p.adjustedSimilarity - topSimilarity) < 0.0001 // Tolerancia para float precision
+      );
+
+      this.logger.log(
+        `Productos empatados en primer lugar: ${tiedProducts.length}`,
+        SearchService.name,
+        { 
+          top_similarity: topSimilarity,
+          tied_codes: tiedProducts.map(p => p.codigo)
+        }
+      );
+
+      let selectedProduct;
+      let selectionMethod;
+
+      if (tiedProducts.length === 1) {
+        // --- SIN EMPATE: USAR GANADOR DIRECTO ---
+        selectedProduct = tiedProducts[0];
+        selectionMethod = 'boost_ranking';
+        
+        this.logger.log(
+          `Ganador único por boost: ${selectedProduct.codigo}`,
+          SearchService.name,
+          { 
+            adjusted_similarity: selectedProduct.adjustedSimilarity,
+            boost_percent: selectedProduct.boostInfo.total_boost
+          }
+        );
+      } else {
+        // --- HAY EMPATE: APLICAR DESEMPATE AUTOMÁTICO ---
+        this.logger.log(
+          `Aplicando desempate automático: Stock > Acuerdo > Segmento`,
+          SearchService.name
+        );
+
+        // Ordenar empatados por prioridades de negocio
+        tiedProducts.sort((a, b) => {
+          // 1. STOCK (prioridad máxima)
+          if (a.articulo_stock !== b.articulo_stock) {
+            return b.articulo_stock ? 1 : -1; // true gana sobre false
+          }
+
+          // 2. ACUERDO DE COSTOS
+          if (a.lista_costos !== b.lista_costos) {
+            return b.lista_costos ? 1 : -1;
+          }
+
+          // 3. SEGMENTO (premium > standard > economy)
+          const segmentOrder = { premium: 3, standard: 2, economy: 1 };
+          const aSegmentValue = segmentOrder[a.segment] || 0;
+          const bSegmentValue = segmentOrder[b.segment] || 0;
+          if (aSegmentValue !== bSegmentValue) {
+            return bSegmentValue - aSegmentValue;
+          }
+
+          // 4. Si aún hay empate, usar similaridad original como último criterio
+          return b.originalSimilarity - a.originalSimilarity;
+        });
+
+        // Verificar si el desempate automático resolvió el empate
+        const afterTiebreak = tiedProducts.filter(p => 
+          p.articulo_stock === tiedProducts[0].articulo_stock &&
+          p.lista_costos === tiedProducts[0].lista_costos &&
+          p.segment === tiedProducts[0].segment
+        );
+
+        if (afterTiebreak.length === 1) {
+          // --- DESEMPATE AUTOMÁTICO EXITOSO ---
+          selectedProduct = tiedProducts[0];
+          selectionMethod = 'automatic_tiebreaker';
+          
+          this.logger.log(
+            `Desempate automático exitoso: ${selectedProduct.codigo}`,
+            SearchService.name,
+            {
+              reason: `Stock:${selectedProduct.articulo_stock}, Acuerdo:${selectedProduct.lista_costos}, Segmento:${selectedProduct.segment}`
+            }
+          );
+        } else {
+          // --- EMPATE PERSISTE: USAR GPT PARA DECIDIR ---
+          this.logger.log(
+            `Empate persiste después de desempate automático, usando GPT`,
+            SearchService.name,
+            { remaining_tied: afterTiebreak.length }
+          );
+
+          const gptResult = await this.selectBestProductWithGPT(
+            originalQuery,
+            afterTiebreak.map(p => ({
+              codigo: p.codigo,
+              descripcion: p.text,
+              marca: p.marca,
+              segment: p.segment,
+              codigo_fabrica: '',
+              articulo_stock: p.articulo_stock,
+              lista_costos: p.lista_costos,
+              similarity: p.originalSimilarity
+            })),
+            normalizedQuery,
+            segment,
+            afterTiebreak.length
+          );
+
+          // Encontrar el producto seleccionado por GPT en nuestra lista
+          selectedProduct = tiedProducts.find(p => p.codigo === gptResult.selected_product.codigo) || tiedProducts[0];
+          selectionMethod = 'gpt_tiebreaker';
+          
+          this.logger.log(
+            `GPT resolvió empate final: ${selectedProduct.codigo}`,
+            SearchService.name,
+            { gpt_similarity: gptResult.query_info.similitud }
+          );
+        }
+      }
+
+      // --- CONSTRUIR RESPUESTA FINAL ---
+      const alternatives = productsWithBoost.slice(0, Math.min(productsWithBoost.length, limit || 10)).map((product, index) => ({
+        codigo: product.codigo,
+        descripcion: product.text,
+        marca: product.marca,
+        rank: index + 1,
+        has_stock: product.articulo_stock,
+        has_cost_agreement: product.lista_costos,
+        segment: product.segment,
+        boost_percent: product.boostInfo.total_boost,
+        boost_tags: [
+          ...(product.boostInfo.segment.applied ? ['segment'] : []),
+          ...(product.boostInfo.stock.applied ? ['stock'] : []),
+          ...(product.boostInfo.cost_agreement.applied ? ['cost'] : [])
+        ]
+      }));
+
+      // Boost summary
+      const boostSummary = {
+        products_with_stock: productsWithBoost.filter(p => p.articulo_stock).map(p => p.codigo),
+        products_with_pricing: productsWithBoost.filter(p => p.lista_costos).map(p => p.codigo),
+        segment_matches: productsWithBoost.filter(p => p.boostInfo.segment.applied).map(p => p.codigo),
+        boost_weights_used: this.boostWeights
+      };
+
+      // Determinar similitud final (usar la del ganador para consistencia)
+      let finalSimilitud = "EXACTO"; // Por defecto para casos híbridos exitosos
+      if (selectedProduct.adjustedSimilarity < 0.85) {
+        finalSimilitud = "DISTINTO";
+      } else if (selectedProduct.adjustedSimilarity < 0.92) {
+        finalSimilitud = "ALTERNATIVO";
+      } else if (selectedProduct.adjustedSimilarity < 0.96) {
+        finalSimilitud = "COMPATIBLE";
+      } else if (selectedProduct.adjustedSimilarity < 0.98) {
+        finalSimilitud = "EQUIVALENTE";
+      }
+
+      const totalTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
+
+      return {
+        query_info: {
+          similitud: finalSimilitud,
+          total_candidates: products.length,
+          search_time_ms: Math.round(totalTime)
+        },
+        selected_product: {
+          codigo: selectedProduct.codigo,
+          descripcion: selectedProduct.text,
+          marca: selectedProduct.marca,
+          segment: selectedProduct.segment,
+          has_stock: selectedProduct.articulo_stock,
+          has_cost_agreement: selectedProduct.lista_costos,
+          boost_total_percent: selectedProduct.boostInfo.total_boost,
+          boost_reasons: alternatives.find(a => a.codigo === selectedProduct.codigo)?.boost_tags || []
+        },
+        alternatives: alternatives,
+        boost_summary: boostSummary,
+        selection_method: selectionMethod,
+        timings: {
+          embedding_time_ms: 0,
+          vector_search_time_ms: 0,
+          gpt_selection_time_ms: totalTime
+        }
+      };
+
+    } catch (error) {
+      const totalTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
+      
+      this.logger.error(
+        `Error en selección híbrida`,
+        error.stack,
+        SearchService.name,
+        { duration_ms: totalTime, error_message: error.message }
+      );
+
+      // Fallback: usar el primer producto
+      const fallbackProduct = products[0];
+      return {
+        query_info: {
+          similitud: "ALTERNATIVO",
+          total_candidates: products.length,
+          search_time_ms: Math.round(totalTime)
+        },
+        selected_product: {
+          codigo: fallbackProduct.codigo || '',
+          descripcion: fallbackProduct.descripcion || '',
+          marca: fallbackProduct.marca || 'N/A',
+          segment: fallbackProduct.segment || 'standard',
+          has_stock: Boolean(fallbackProduct.articulo_stock),
+          has_cost_agreement: Boolean(fallbackProduct.lista_costos),
+          boost_total_percent: 0,
+          boost_reasons: []
+        },
+        alternatives: [],
+        boost_summary: this.createEmptyBoostSummary(),
+        selection_method: 'fallback_error',
+        timings: {
+          embedding_time_ms: 0,
+          vector_search_time_ms: 0,
+          gpt_selection_time_ms: totalTime
+        }
+      };
     }
   }
 
