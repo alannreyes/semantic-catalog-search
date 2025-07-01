@@ -5,6 +5,7 @@ import { SearchController } from './search/search.controller';
 import { SearchService } from './search/search.service';
 import { VisionController } from './vision.controller';
 import { VisionService } from './vision.service';
+import { OpenAIRateLimiterService } from './openai-rate-limiter.service';
 import { Logger } from '@nestjs/common';
 import * as Joi from 'joi';
 import { SegmentsModule } from './segments/segments.module';
@@ -53,6 +54,7 @@ import { SyncModule } from './sync/sync.module';
   providers: [
     SearchService,
     VisionService,
+    OpenAIRateLimiterService,
     {
       provide: Logger,
       useValue: new Logger('SearchModule'),

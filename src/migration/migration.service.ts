@@ -5,6 +5,7 @@ import { DatabaseService } from './database.service';
 import { AcronimosService } from '../acronimos/acronimos.service';
 import { TransactionHelper } from './transaction-helper';
 import OpenAI from 'openai';
+import { OpenAIRateLimiterService } from '../openai-rate-limiter.service';
 
 interface MigrationConfig {
   source: {
@@ -68,7 +69,8 @@ export class MigrationService {
     private readonly configService: ConfigService,
     private readonly pgPool: Pool,
     private readonly databaseService: DatabaseService,
-    private readonly acronimosService: AcronimosService
+    private readonly acronimosService: AcronimosService,
+    private readonly rateLimiter: OpenAIRateLimiterService
   ) {
     this.openai = new OpenAI({
       apiKey: this.configService.get<string>('OPENAI_API_KEY'),
@@ -542,7 +544,10 @@ export class MigrationService {
                embeddingParams.dimensions = this.vectorDimensions;
              }
 
-             const response = await this.openai.embeddings.create(embeddingParams);
+             const response = await this.rateLimiter.executeEmbedding(
+               () => this.openai.embeddings.create(embeddingParams),
+               `migration-embedding-${Date.now()}-${index}`
+             );
              return response.data[0].embedding;
            } catch (error) {
              this.logger.error(`Error generando embedding para texto "${text.substring(0, 50)}...": ${error.message}`);

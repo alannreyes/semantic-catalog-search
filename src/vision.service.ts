@@ -1,13 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { OpenAIRateLimiterService } from './openai-rate-limiter.service';
 
 @Injectable()
 export class VisionService {
   private openai: OpenAI;
   private readonly logger = new Logger(VisionService.name);
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private readonly rateLimiter: OpenAIRateLimiterService
+  ) {
     this.openai = new OpenAI({
       apiKey: this.configService.get<string>('OPENAI_API_KEY'),
       timeout: 60000, // 60 segundos para imágenes
@@ -25,50 +29,53 @@ export class VisionService {
       const base64Image = imageBuffer.toString('base64');
       const dataUri = `data:${mimeType};base64,${base64Image}`;
 
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: `Eres un experto en identificación de productos industriales, herramientas y equipos. 
-            Tu tarea es analizar la imagen y proporcionar ÚNICAMENTE el nombre técnico del producto.
-            
-            Reglas:
-            - Identifica marca, modelo, tipo, tamaño y características visibles
-            - Usa terminología técnica estándar de la industria
-            - Sé específico pero conciso
-            - Si ves texto en la imagen, inclúyelo cuando sea relevante
-            - Responde SOLO con el nombre del producto, sin explicaciones adicionales
-            
-            Ejemplos de respuestas correctas:
-            - "martillo carpintero stanley fatmax 20oz"
-            - "llave ajustable cromada 10 pulgadas"
-            - "taladro percutor bosch 850w azul"
-            - "casco seguridad 3m blanco ventilado"
-            - "guantes nitrilo negro talla l"
-            
-            Si no puedes identificar el producto con certeza, responde: "producto no identificado"`
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: {
-                  url: dataUri,
-                  detail: "high" // Alta resolución para mejor identificación
+      const response = await this.rateLimiter.executeChat(
+        () => this.openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: `Eres un experto en identificación de productos industriales, herramientas y equipos. 
+              Tu tarea es analizar la imagen y proporcionar ÚNICAMENTE el nombre técnico del producto.
+              
+              Reglas:
+              - Identifica marca, modelo, tipo, tamaño y características visibles
+              - Usa terminología técnica estándar de la industria
+              - Sé específico pero conciso
+              - Si ves texto en la imagen, inclúyelo cuando sea relevante
+              - Responde SOLO con el nombre del producto, sin explicaciones adicionales
+              
+              Ejemplos de respuestas correctas:
+              - "martillo carpintero stanley fatmax 20oz"
+              - "llave ajustable cromada 10 pulgadas"
+              - "taladro percutor bosch 850w azul"
+              - "casco seguridad 3m blanco ventilado"
+              - "guantes nitrilo negro talla l"
+              
+              Si no puedes identificar el producto con certeza, responde: "producto no identificado"`
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: dataUri,
+                    detail: "high" // Alta resolución para mejor identificación
+                  }
+                },
+                {
+                  type: "text",
+                  text: "¿Qué producto es este?"
                 }
-              },
-              {
-                type: "text",
-                text: "¿Qué producto es este?"
-              }
-            ]
-          }
-        ],
-        temperature: 0.2,
-        max_tokens: 100,
-      });
+              ]
+            }
+          ],
+          temperature: 0.2,
+          max_tokens: 100,
+        }),
+        `vision-analysis-${Date.now()}`
+      );
 
       const description = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
       

@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient } from 'pg';
 import OpenAI from 'openai';
 import { AcronimosService } from '../acronimos/acronimos.service';
+import { OpenAIRateLimiterService } from '../openai-rate-limiter.service';
 
 @Injectable()
 export class SearchService implements OnModuleDestroy {
@@ -46,6 +47,7 @@ export class SearchService implements OnModuleDestroy {
     private configService: ConfigService,
     private readonly logger: Logger,
     private readonly acronimosService: AcronimosService,
+    private readonly rateLimiter: OpenAIRateLimiterService,
   ) {
     // Configuración optimizada del pool de conexiones
     this.pool = new Pool({
@@ -349,10 +351,10 @@ export class SearchService implements OnModuleDestroy {
         );
       }
 
-      const embeddingResponse = await Promise.race([
-        this.openai.embeddings.create(embeddingParams),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('OpenAI embedding timeout')), 30000))
-      ]) as any;
+      const embeddingResponse = await this.rateLimiter.executeEmbedding(
+        () => this.openai.embeddings.create(embeddingParams),
+        `search-embedding-${Date.now()}`
+      );
       
       const embeddingEnd = process.hrtime.bigint();
       embeddingTime = Number(embeddingEnd - embeddingStart) / 1_000_000;
@@ -862,8 +864,8 @@ INSTRUCCIONES:
       let gptResponse;
       
       try {
-        gptResponse = await Promise.race([
-          this.openai.chat.completions.create({
+        gptResponse = await this.rateLimiter.executeChat(
+          () => this.openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
               {
@@ -879,10 +881,8 @@ INSTRUCCIONES:
             max_tokens: 200,
             response_format: { type: "json_object" }
           }),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('GPT selection timeout after 15s')), 15000)
-          )
-        ]) as any;
+          `gpt-selection-${Date.now()}`
+        );
       } catch (openaiError) {
         this.logger.error(
           `Error en llamada a OpenAI API`,
@@ -1500,8 +1500,8 @@ INSTRUCCIONES:
       );
 
       const gptNormalizationCallStart = process.hrtime.bigint();
-      const response = await Promise.race([
-        this.openai.chat.completions.create({
+      const response = await this.rateLimiter.executeChat(
+        () => this.openai.chat.completions.create({
           model: "gpt-4o",
           messages: [
             {
@@ -1525,8 +1525,8 @@ INSTRUCCIONES:
           temperature: 0.2,
           max_tokens: 100
         }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('GPT normalization timeout')), 25000))
-      ]) as any;
+        `gpt-normalization-${Date.now()}`
+      );
       const gptNormalizationCallEnd = process.hrtime.bigint();
       this.logger.debug(
         `Llamada a GPT para normalización completada.`,

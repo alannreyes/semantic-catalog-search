@@ -4,6 +4,7 @@ import { MigrationController } from './migration.controller';
 import { ResumeMigrationService } from './resume-migration.service';
 import { ResumeMigrationController } from './resume-migration.controller';
 import { DatabaseService } from './database.service';
+import { OpenAIRateLimiterService } from '../openai-rate-limiter.service';
 import { AcronimosModule } from '../acronimos/acronimos.module';
 import { Pool } from 'pg';
 
@@ -14,6 +15,7 @@ import { Pool } from 'pg';
     MigrationService,
     ResumeMigrationService,
     DatabaseService,
+    OpenAIRateLimiterService,
     {
       provide: Pool,
       useFactory: () => {
