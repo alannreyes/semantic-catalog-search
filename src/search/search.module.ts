@@ -2,6 +2,7 @@ import { Module, Logger } from '@nestjs/common';
 import { SearchService } from './search.service';
 import { SearchController } from './search.controller';
 import { WebhookController } from './webhook.controller';
+import { OpenAIRateLimiterService } from '../openai-rate-limiter.service';
 import { AcronimosModule } from '../acronimos/acronimos.module';
 
 @Module({
@@ -9,6 +10,7 @@ import { AcronimosModule } from '../acronimos/acronimos.module';
   controllers: [SearchController, WebhookController],
   providers: [
     SearchService,
+    OpenAIRateLimiterService,
     Logger
   ],
   exports: [SearchService],

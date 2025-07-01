@@ -1,13 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { SearchController } from './search/search.controller';
-import { SearchService } from './search/search.service';
 import { VisionController } from './vision.controller';
 import { VisionService } from './vision.service';
 import { OpenAIRateLimiterService } from './openai-rate-limiter.service';
 import { Logger } from '@nestjs/common';
 import * as Joi from 'joi';
+import { SearchModule } from './search/search.module';
 import { SegmentsModule } from './segments/segments.module';
 import { AcronimosModule } from './acronimos/acronimos.module';
 import { MigrationModule } from './migration/migration.module';
@@ -44,20 +43,20 @@ import { SyncModule } from './sync/sync.module';
       }),
     }),
     ScheduleModule.forRoot(),
+    SearchModule,
     SegmentsModule,
     AcronimosModule,
     MigrationModule,
     HealthModule,
     SyncModule,
   ],
-  controllers: [SearchController, VisionController],
+  controllers: [VisionController],
   providers: [
-    SearchService,
     VisionService,
     OpenAIRateLimiterService,
     {
       provide: Logger,
-      useValue: new Logger('SearchModule'),
+      useValue: new Logger('AppModule'),
     },
   ],
 })
