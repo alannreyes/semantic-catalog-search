@@ -228,7 +228,16 @@ export class SearchService implements OnModuleDestroy {
             };
           } else {
             // No hay alternativa válida, continuar con normalización
-            this.logger.log(`No se encontró alternativa válida, continuando con normalización.`, SearchService.name);
+            this.logger.warn(
+              `⚠️ RECOMENDADO RECHAZADO: No se encontró alternativa válida entre ${initialResult.alternatives.length} opciones`,
+              SearchService.name,
+              {
+                query: query,
+                rejected_product: initialResult.selected_product?.codigo,
+                rejected_description: initialResult.selected_product?.descripcion,
+                action: 'CONTINUING_WITH_NORMALIZATION'
+              }
+            );
           }
         }
       }
@@ -339,7 +348,17 @@ export class SearchService implements OnModuleDestroy {
           };
         } else {
           // No hay alternativa válida, recomendado queda null
-          this.logger.log(`No se encontró alternativa válida después de normalización, recomendado = null.`, SearchService.name);
+          this.logger.warn(
+            `⚠️ SIN RECOMENDACIÓN: No se encontró producto válido después de normalización y validación GPT`,
+            SearchService.name,
+            {
+              query: query,
+              normalized_query: normalizedQuery,
+              alternatives_evaluated: resultAfterNormalization.alternatives.length,
+              reason: 'NO_VALID_PRODUCT_FOUND',
+              action: 'RETURNING_NULL_RECOMMENDATION'
+            }
+          );
           
           return {
             query_info: resultAfterNormalization.query_info,
@@ -1676,24 +1695,45 @@ INSTRUCCIONES:
           messages: [
             {
               role: "system",
-              content: `Analiza si este producto recomendado es funcionalmente intercambiable con lo que busca el usuario.
+              content: `Eres un experto en productos industriales. Analiza con EXTREMO CUIDADO si el producto recomendado es EXACTAMENTE lo que busca el usuario.
 
-Responde únicamente con "SI" o "NO".
+Responde ÚNICAMENTE "SI" o "NO".
 
-Criterios:
-- SI: Son el mismo tipo de producto, misma función, intercambiables para el uso que busca el usuario
-- NO: Son productos diferentes, distintos usos, no intercambiables
+CRITERIOS ESTRICTOS (TODOS deben cumplirse para responder "SI"):
+1. TIPO EXACTO: Debe ser el MISMO tipo de producto (filtro aceite ≠ filtro aire)
+2. ESPECIFICACIONES: Si el usuario menciona códigos/referencias, deben coincidir o ser equivalentes confirmados
+3. CANTIDADES: Si hay cantidades, deben ser IDÉNTICAS o muy cercanas (±10%)
+4. FUNCIÓN: Deben servir para EXACTAMENTE el mismo propósito
+5. COMPATIBILIDAD: Deben ser 100% intercambiables en la aplicación
 
-Ejemplos:
-- Usuario busca "cable HDMI" → Producto "Cable HDMI 2.1 4K Samsung" = SI
-- Usuario busca "cable HDMI" → Producto "Adaptador USB-C a HDMI" = NO  
-- Usuario busca "monitor 24 pulgadas" → Producto "Monitor LED 24" LG Ultrawide" = SI
-- Usuario busca "monitor 24 pulgadas" → Producto "Televisor LED 24 pulgadas" = NO`
+RESPONDE "NO" SI:
+- Son tipos diferentes (aceite vs aire, hidráulico vs combustible)
+- Las cantidades difieren significativamente (5L vs 55GL)
+- Los códigos/referencias no coinciden
+- La función es diferente aunque parecida
+- Hay CUALQUIER duda sobre la compatibilidad
+
+EJEMPLOS CRÍTICOS:
+- Usuario: "FILTRO ACEITE 21192875" → Producto: "FILTRO DE AIRE 21693755" = NO
+- Usuario: "FILTRO AIRE MTU 0180945802" → Producto: "FILTRO DE ACEITE MTU" = NO
+- Usuario: "THINNER 55GL" → Producto: "THINER 5 LTR" = NO (cantidad incorrecta)
+- Usuario: "cable HDMI" → Producto: "Cable HDMI 2.1 4K" = SI
+- Usuario: "pintura blanca 5 gal" → Producto: "pintura blanca 5 galones" = SI
+
+IMPORTANTE: En caso de duda, SIEMPRE responde "NO". Es mejor no recomendar que recomendar incorrectamente.`
             },
             {
               role: "user",
               content: `CONSULTA DEL USUARIO: "${query}"
-PRODUCTO RECOMENDADO: "${product?.descripcion || 'N/A'}" - Marca: ${product?.marca || 'N/A'}`
+PRODUCTO RECOMENDADO: "${product?.descripcion || 'N/A'}"
+Marca: ${product?.marca || 'N/A'}
+Código: ${product?.codigo || 'N/A'}
+
+ANALIZA CUIDADOSAMENTE:
+1. ¿Es el mismo TIPO de producto?
+2. ¿Los códigos/referencias coinciden o son equivalentes?
+3. ¿Las cantidades son correctas?
+4. ¿La función es idéntica?`
             }
           ],
           temperature: 0.1,
@@ -1713,7 +1753,9 @@ PRODUCTO RECOMENDADO: "${product?.descripcion || 'N/A'}" - Marca: ${product?.mar
           duration_ms: totalStepTime,
           gpt_response: gptResponse,
           query: query,
-          product_code: product?.codigo
+          product_code: product?.codigo,
+          product_description: product?.descripcion,
+          validation_result: isValid ? 'ACCEPTED' : 'REJECTED'
         }
       );
 
@@ -1746,9 +1788,9 @@ PRODUCTO RECOMENDADO: "${product?.descripcion || 'N/A'}" - Marca: ${product?.mar
         SearchService.name
       );
 
-      // Preparar lista de alternativas para GPT
+      // Preparar lista de alternativas para GPT con más información
       const alternativesList = alternatives.slice(0, 10).map((alt, index) => 
-        `${index + 1}. ${alt.descripcion} - Marca: ${alt.marca || 'N/A'}`
+        `${index + 1}. ${alt.descripcion} - Marca: ${alt.marca || 'N/A'} - Código: ${alt.codigo || 'N/A'}`
       ).join('\n');
 
       const response = await this.rateLimiter.executeChat(
@@ -1757,14 +1799,29 @@ PRODUCTO RECOMENDADO: "${product?.descripcion || 'N/A'}" - Marca: ${product?.mar
           messages: [
             {
               role: "system",
-              content: `El usuario busca algo específico pero no hay coincidencia exacta. Analiza cuál de estas alternativas SÍ es funcionalmente lo mismo que busca el usuario.
+              content: `Eres un experto en productos industriales. El usuario busca algo específico. Analiza con EXTREMO CUIDADO cuál de estas alternativas es EXACTAMENTE lo que busca.
 
-Responde únicamente con el NÚMERO de la alternativa que es funcionalmente intercambiable con lo que busca el usuario, o "NINGUNO" si no hay ninguna válida.
+Responde ÚNICAMENTE con el NÚMERO de la alternativa correcta, o "NINGUNO" si NO HAY ninguna que cumpla TODOS los criterios.
 
-Criterios estrictos:
-- Debe ser el mismo tipo de producto para el mismo uso
-- Debe servir para el mismo propósito/función
-- Deben ser intercambiables en la aplicación que necesita el usuario`
+CRITERIOS ESTRICTOS (TODOS deben cumplirse):
+1. TIPO EXACTO: Debe ser el MISMO tipo de producto
+2. ESPECIFICACIONES: Códigos/referencias deben coincidir o ser equivalentes confirmados
+3. CANTIDADES: Deben ser IDÉNTICAS o muy cercanas (±10%)
+4. FUNCIÓN: Mismo propósito exacto
+5. COMPATIBILIDAD: 100% intercambiables
+
+RECHAZA INMEDIATAMENTE SI:
+- Tipos diferentes (filtro aceite ≠ filtro aire)
+- Cantidades muy diferentes (5L vs 55GL)
+- Códigos no coinciden
+- Función diferente
+
+EJEMPLOS DE RECHAZO:
+- Usuario busca "FILTRO ACEITE 21192875" → Lista contiene "FILTRO AIRE" = NINGUNO
+- Usuario busca "THINNER 55GL" → Lista contiene "THINER 5L" = NINGUNO
+- Usuario busca código específico → Productos sin ese código = NINGUNO
+
+IMPORTANTE: Si tienes CUALQUIER duda, responde "NINGUNO". Mejor no recomendar que recomendar mal.`
             },
             {
               role: "user",
@@ -1800,7 +1857,10 @@ Responde solo el número o "NINGUNO".`
           duration_ms: totalStepTime,
           gpt_response: gptResponse,
           selected_product: selectedAlternative?.codigo || null,
-          query: query
+          selected_description: selectedAlternative?.descripcion || null,
+          query: query,
+          alternatives_evaluated: alternatives.length,
+          result: selectedAlternative ? 'ALTERNATIVE_FOUND' : 'NO_VALID_ALTERNATIVE'
         }
       );
 
