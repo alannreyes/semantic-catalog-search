@@ -1660,19 +1660,18 @@ INSTRUCCIONES:
 
 Responde ÚNICAMENTE "SI" o "NO".
 
-REGLAS ABSOLUTAS PARA RESPONDER "SI":
-1. MISMA CATEGORÍA: PROHIBIDO cambiar de categoría (filtro aceite ≠ filtro aire, pintura ≠ solvente)
-2. MISMO TAMAÑO/CANTIDAD: Deben ser equivalentes exactos (5 gal = 5 galones = 18.9L, pero 5L ≠ 55GL)
-3. CÓDIGOS EXACTOS: Si el usuario da un código, DEBE coincidir o tener equivalencia confirmada del fabricante
-4. PRODUCTO EQUIVALENTE: Debe ser el mismo producto o equivalente directo certificado
-5. APLICACIÓN IDÉNTICA: Mismo uso, misma función, 100% intercambiable
+REGLAS PARA RESPONDER "SI":
+1. CATEGORÍA COMPATIBLE: Misma función base o tipo de producto (monitor ↔ controlador de temperatura)
+2. TAMAÑO EQUIVALENTE: Conversiones estándar aceptables (5 gal = 18.9L, rangos similares)
+3. CÓDIGOS FLEXIBLES: Si hay código, puede ser diferente si la marca/función coincide
+4. FUNCIÓN COMPATIBLE: Mismo propósito industrial, intercambiables en aplicación
+5. MARCA RELACIONADA: Misma marca con diferente modelo es aceptable
 
-RESPONDE "NO" AUTOMÁTICAMENTE SI:
-- CAMBIO DE CATEGORÍA: filtro aceite → filtro aire, thinner → pintura, hidráulico → motor
-- TAMAÑO INCORRECTO: 5L cuando pide 55GL, 1 gal cuando pide 5 gal
-- CÓDIGO NO COINCIDE: Usuario da código específico y producto tiene otro
-- PRODUCTO DIFERENTE: Aunque sea "similar" o "parecido"
-- CUALQUIER DUDA sobre equivalencia
+RESPONDE "NO" SOLO SI:
+- CAMBIO RADICAL DE FUNCIÓN: filtro aceite → pintura, ventilador → cable
+- ERROR GRAVE DE TAMAÑO: 1L cuando pide 200L (diferencia mayor a 10x)
+- INCOMPATIBILIDAD TOTAL: productos de industrias completamente diferentes
+- RIESGO DE SEGURIDAD: voltajes incompatibles, presiones incorrectas
 
 VALIDACIÓN DE CATEGORÍAS:
 - Filtro aceite ≠ Filtro aire ≠ Filtro combustible ≠ Filtro hidráulico
@@ -1680,19 +1679,19 @@ VALIDACIÓN DE CATEGORÍAS:
 - Pintura ≠ Primer ≠ Thinner ≠ Solvente
 - Cable eléctrico ≠ Cable datos ≠ Cable control
 
-EJEMPLOS CRÍTICOS DE "NO":
-- "FILTRO ACEITE 21192875" → "FILTRO DE AIRE 21693755" = NO (cambio categoría)
-- "FILTRO AIRE MTU 0180945802" → "FILTRO DE ACEITE MTU" = NO (cambio categoría)
-- "THINNER 55GL" → "THINER 5 LTR" = NO (55GL ≠ 5L)
-- "Pintura epóxica" → "Primer epóxico" = NO (pintura ≠ primer)
-- "Aceite SAE 40" → "Aceite hidráulico ISO 68" = NO (motor ≠ hidráulico)
+EJEMPLOS DE "NO" (casos graves):
+- "FILTRO ACEITE" → "PINTURA EPÓXICA" = NO (función completamente diferente)
+- "VENTILADOR 220V" → "VENTILADOR 440V" = NO (voltaje incompatible)
+- "THINNER 55GL" → "THINER 1L" = NO (tamaño muy diferente, >10x)
+- "CABLE ELÉCTRICO" → "FILTRO ACEITE" = NO (productos diferentes)
 
-EJEMPLOS DE "SI":
-- "pintura blanca 5 gal" → "pintura blanca 5 galones" = SI (mismo producto y cantidad)
-- "FILTRO ACEITE WIX 51348" → "FILTRO ACEITE WIX 51348" = SI (exacto)
-- "cable 12 AWG THHN" → "cable 12 AWG THHN 600V" = SI (misma especificación)
+EJEMPLOS DE "SI" (compatibles):
+- "MONITOR TEMPERATURA ABB MIT114" → "CONTROLADOR TEMPERATURA TECSYSTEM" = SI (misma función)
+- "VENTILADOR AIRTEC VAV-32" → "VENTILADOR AIRTEC VAS-4" = SI (misma marca, misma función)
+- "FILTRO ACEITE WIX 51348" → "FILTRO ACEITE FRAM PH3593A" = SI (equivalentes industriales)
+- "pintura blanca 5 gal" → "pintura blanca 18.9L" = SI (conversión estándar)
 
-DECISIÓN FINAL: En caso de CUALQUIER duda sobre categoría, tamaño o equivalencia, responde "NO".`
+DECISIÓN FINAL: Si cumple la misma función industrial y no hay riesgo de seguridad, responde "SI".`
             },
             {
               role: "user",
@@ -1775,18 +1774,18 @@ ANALIZA CUIDADOSAMENTE:
 
 Responde ÚNICAMENTE con el NÚMERO de la alternativa correcta, o "NINGUNO" si NO HAY ninguna que sea EXACTAMENTE lo que busca.
 
-REGLAS ABSOLUTAS (TODAS deben cumplirse):
-1. MISMA CATEGORÍA: PROHIBIDO cambiar de categoría de producto
-2. MISMO TAMAÑO: Cantidad/volumen/medida debe ser equivalente exacto
-3. CÓDIGOS EXACTOS: Si hay código, DEBE coincidir o ser equivalente certificado
-4. PRODUCTO EQUIVALENTE: Mismo producto o sustituto directo confirmado
-5. APLICACIÓN IDÉNTICA: 100% intercambiable para el mismo uso
+REGLAS PARA SELECCIONAR ALTERNATIVA:
+1. FUNCIÓN COMPATIBLE: Misma función base o propósito industrial
+2. TAMAÑO EQUIVALENTE: Conversiones estándar aceptables (rangos similares)
+3. CÓDIGOS FLEXIBLES: Diferentes códigos OK si marca/función coincide
+4. MARCA RELACIONADA: Misma marca con diferente modelo es válido
+5. INTERCAMBIABILIDAD: Sirve para la misma aplicación industrial
 
-RECHAZA AUTOMÁTICAMENTE SI:
-- CAMBIO DE CATEGORÍA: filtro aceite → filtro aire, pintura → solvente
-- TAMAÑO DIFERENTE: 5L vs 55GL, 1 gal vs 5 gal
-- CÓDIGO NO COINCIDE: Códigos diferentes sin equivalencia confirmada
-- PRODUCTO DIFERENTE: Aunque sea "parecido" o "similar"
+RECHAZA SOLO SI:
+- FUNCIÓN COMPLETAMENTE DIFERENTE: filtro → pintura, ventilador → cable
+- TAMAÑO MUY DIFERENTE: diferencia mayor a 10x (1L vs 200L)
+- INCOMPATIBILIDAD DE SEGURIDAD: voltajes, presiones incorrectas
+- INDUSTRIA DIFERENTE: productos no relacionados
 
 CATEGORÍAS QUE NO PUEDES MEZCLAR:
 - Filtros: aceite ≠ aire ≠ combustible ≠ hidráulico ≠ cabina
@@ -1801,13 +1800,17 @@ VALIDACIÓN DE TAMAÑOS:
 - 55 galones = 208L (NO es 200L ni 5L)
 - Verificar SIEMPRE unidades: L ≠ GL, kg ≠ lb
 
-EJEMPLOS CRÍTICOS "NINGUNO":
-- "FILTRO ACEITE 21192875" → Alternativas con "FILTRO AIRE" = NINGUNO
-- "THINNER 55GL" → Alternativas con "5L" o "20L" = NINGUNO
-- "Aceite 15W40" → Alternativas con "Aceite hidráulico" = NINGUNO
-- "Pintura epóxica" → Alternativas con "Primer epóxico" = NINGUNO
+EJEMPLOS "NINGUNO" (casos graves):
+- "FILTRO ACEITE" → Alternativas con "PINTURA" = NINGUNO
+- "VENTILADOR 220V" → Alternativas con "VENTILADOR 440V" = NINGUNO
+- "THINNER 55GL" → Alternativas con "1L" = NINGUNO (>10x diferencia)
 
-DECISIÓN: Si dudas aunque sea 1% sobre categoría, tamaño o equivalencia = "NINGUNO".`
+EJEMPLOS VÁLIDOS (números):
+- "MONITOR TEMP ABB" → Alternativas con "CONTROLADOR TEMP" = Número válido
+- "VENTILADOR AIRTEC VAV-32" → "VENTILADOR AIRTEC VAS-4" = Número válido
+- "FILTRO ACEITE WIX" → "FILTRO ACEITE FRAM" = Número válido
+
+DECISIÓN: Si cumple función similar y no hay riesgo de seguridad, selecciona el número.`
             },
             {
               role: "user",
