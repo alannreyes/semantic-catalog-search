@@ -43,21 +43,21 @@ export class OpenAIRateLimiterService {
     // Límites Tier 5: 5,000,000 RPM, 5,000,000,000 TPM
     // Configuración optimizada para máxima velocidad
     const embeddingConfig = this.isDevelopment ? {
-      // Desarrollo: máxima velocidad
-      minTime: 10, // 100 requests/segundo = 6000 RPM
-      maxConcurrent: 30,
-      reservoir: 1000, // 1000 requests iniciales
-      reservoirRefreshAmount: 100, // 100 requests cada
-      reservoirRefreshInterval: 1000, // 1 segundo (100 RPS = 6000 RPM)
-      highWater: 200,
+      // Desarrollo: conservador para testing
+      minTime: 100, // 10 requests/segundo = 600 RPM
+      maxConcurrent: 5,
+      reservoir: 50, // 50 requests iniciales
+      reservoirRefreshAmount: 10, // 10 requests cada
+      reservoirRefreshInterval: 1000, // 1 segundo (10 RPS = 600 RPM)
+      highWater: 20,
     } : {
-      // Producción: alta velocidad pero estable
-      minTime: 15, // 67 requests/segundo = 4000 RPM  
-      maxConcurrent: 25,
-      reservoir: 800, // 800 requests iniciales
-      reservoirRefreshAmount: 67, // 67 requests cada
-      reservoirRefreshInterval: 1000, // 1 segundo (67 RPS = 4000 RPM)
-      highWater: 150,
+      // Producción: ULTRA CONSERVADOR para evitar 429
+      minTime: 200, // 5 requests/segundo = 300 RPM  
+      maxConcurrent: 3,
+      reservoir: 30, // 30 requests iniciales
+      reservoirRefreshAmount: 5, // 5 requests cada
+      reservoirRefreshInterval: 1000, // 1 segundo (5 RPS = 300 RPM)
+      highWater: 10,
     };
 
     this.embeddingLimiter = new Bottleneck({
@@ -75,23 +75,23 @@ export class OpenAIRateLimiterService {
 
     // Configuración para chat completions (GPT-4o)
     // Límites Tier 5: 10,000 RPM, 30,000,000 TPM
-    // Configuración optimizada para máxima velocidad
+    // Configuración ULTRA CONSERVADORA para evitar rate limits
     const chatConfig = this.isDevelopment ? {
-      // Desarrollo: máxima velocidad
-      minTime: 30, // 33 requests/segundo = 2000 RPM
-      maxConcurrent: 15,
-      reservoir: 200,
-      reservoirRefreshAmount: 33,
-      reservoirRefreshInterval: 1000, // 33 requests por segundo
-      highWater: 100,
+      // Desarrollo: conservador
+      minTime: 200, // 5 requests/segundo = 300 RPM
+      maxConcurrent: 3,
+      reservoir: 30,
+      reservoirRefreshAmount: 5,
+      reservoirRefreshInterval: 1000, // 5 requests por segundo
+      highWater: 10,
     } : {
-      // Producción: alta velocidad
-      minTime: 40, // 25 requests/segundo = 1500 RPM
-      maxConcurrent: 12,
-      reservoir: 150,
-      reservoirRefreshAmount: 25,
-      reservoirRefreshInterval: 1000, // 25 requests por segundo
-      highWater: 75,
+      // Producción: ULTRA CONSERVADOR para evitar 429
+      minTime: 400, // 2.5 requests/segundo = 150 RPM
+      maxConcurrent: 2,
+      reservoir: 15,
+      reservoirRefreshAmount: 2,
+      reservoirRefreshInterval: 1000, // 2 requests por segundo  
+      highWater: 5,
     };
 
     this.chatLimiter = new Bottleneck({
