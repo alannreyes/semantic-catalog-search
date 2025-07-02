@@ -1661,17 +1661,17 @@ INSTRUCCIONES:
 Responde ÚNICAMENTE "SI" o "NO".
 
 REGLAS PARA RESPONDER "SI":
-1. CATEGORÍA COMPATIBLE: Misma función base o tipo de producto (monitor ↔ controlador de temperatura)
-2. TAMAÑO EQUIVALENTE: Conversiones estándar aceptables (5 gal = 18.9L, rangos similares)
-3. CÓDIGOS FLEXIBLES: Si hay código, puede ser diferente si la marca/función coincide
-4. FUNCIÓN COMPATIBLE: Mismo propósito industrial, intercambiables en aplicación
-5. MARCA RELACIONADA: Misma marca con diferente modelo es aceptable
+1. SUSTITUTOS DIRECTOS: Productos exactos, similares o intercambiables
+2. ESPECIFICACIONES TÉCNICAS: Mismas capacidades, rangos, voltajes, presiones
+3. FUNCIÓN IDÉNTICA: Mismo propósito, misma aplicación industrial
+4. EQUIVALENTES CERTIFICADOS: Intercambiables según especificaciones técnicas
+5. COMPATIBILIDAD TOTAL: 100% intercambiable en la aplicación
 
 RESPONDE "NO" SOLO SI:
-- CAMBIO RADICAL DE FUNCIÓN: filtro aceite → pintura, ventilador → cable
-- ERROR GRAVE DE TAMAÑO: 1L cuando pide 200L (diferencia mayor a 10x)
-- INCOMPATIBILIDAD TOTAL: productos de industrias completamente diferentes
-- RIESGO DE SEGURIDAD: voltajes incompatibles, presiones incorrectas
+- FUNCIÓN DIFERENTE: filtro aceite → pintura, ventilador → cable
+- ESPECIFICACIONES INCOMPATIBLES: 220V vs 440V, 1L vs 200L
+- NO INTERCAMBIABLE: productos técnicamente incompatibles
+- RIESGO DE OPERACIÓN: diferencias que afecten funcionamiento
 
 VALIDACIÓN DE CATEGORÍAS:
 - Filtro aceite ≠ Filtro aire ≠ Filtro combustible ≠ Filtro hidráulico
@@ -1685,13 +1685,13 @@ EJEMPLOS DE "NO" (casos graves):
 - "THINNER 55GL" → "THINER 1L" = NO (tamaño muy diferente, >10x)
 - "CABLE ELÉCTRICO" → "FILTRO ACEITE" = NO (productos diferentes)
 
-EJEMPLOS DE "SI" (compatibles):
-- "MONITOR TEMPERATURA ABB MIT114" → "CONTROLADOR TEMPERATURA TECSYSTEM" = SI (misma función)
-- "VENTILADOR AIRTEC VAV-32" → "VENTILADOR AIRTEC VAS-4" = SI (misma marca, misma función)
-- "FILTRO ACEITE WIX 51348" → "FILTRO ACEITE FRAM PH3593A" = SI (equivalentes industriales)
-- "pintura blanca 5 gal" → "pintura blanca 18.9L" = SI (conversión estándar)
+EJEMPLOS DE "SI" (sustitutos directos):
+- "MONITOR TEMPERATURA ABB MIT114" → "CONTROLADOR TEMPERATURA TECSYSTEM" = SI (especificaciones técnicas equivalentes)
+- "VENTILADOR AIRTEC VAV-32" → "VENTILADOR AIRTEC VAS-4" = SI (intercambiables por especificaciones)
+- "FILTRO ACEITE WIX 51348" → "FILTRO ACEITE FRAM PH3593A" = SI (sustitutos directos certificados)
+- "CAPACITOR 10MFD 380VAC" → "CAPACITOR 10UF 370-450VAC" = SI (especificaciones técnicas compatibles)
 
-DECISIÓN FINAL: Si cumple la misma función industrial y no hay riesgo de seguridad, responde "SI".`
+DECISIÓN FINAL: Si son sustitutos directos con especificaciones técnicas compatibles, responde "SI".`
             },
             {
               role: "user",
@@ -1775,17 +1775,17 @@ ANALIZA CUIDADOSAMENTE:
 Responde ÚNICAMENTE con el NÚMERO de la alternativa correcta, o "NINGUNO" si NO HAY ninguna que sea EXACTAMENTE lo que busca.
 
 REGLAS PARA SELECCIONAR ALTERNATIVA:
-1. FUNCIÓN COMPATIBLE: Misma función base o propósito industrial
-2. TAMAÑO EQUIVALENTE: Conversiones estándar aceptables (rangos similares)
-3. CÓDIGOS FLEXIBLES: Diferentes códigos OK si marca/función coincide
-4. MARCA RELACIONADA: Misma marca con diferente modelo es válido
-5. INTERCAMBIABILIDAD: Sirve para la misma aplicación industrial
+1. SUSTITUTOS DIRECTOS: Productos exactos, similares o intercambiables
+2. ESPECIFICACIONES TÉCNICAS: Mismas capacidades, voltajes, presiones, dimensiones
+3. EQUIVALENTES CERTIFICADOS: Intercambiables según especificaciones técnicas
+4. COMPATIBILIDAD TOTAL: 100% intercambiable en la aplicación
+5. FUNCIÓN IDÉNTICA: Mismo propósito y aplicación industrial
 
 RECHAZA SOLO SI:
-- FUNCIÓN COMPLETAMENTE DIFERENTE: filtro → pintura, ventilador → cable
-- TAMAÑO MUY DIFERENTE: diferencia mayor a 10x (1L vs 200L)
-- INCOMPATIBILIDAD DE SEGURIDAD: voltajes, presiones incorrectas
-- INDUSTRIA DIFERENTE: productos no relacionados
+- ESPECIFICACIONES INCOMPATIBLES: voltajes, presiones, tamaños incompatibles
+- FUNCIÓN DIFERENTE: filtro → pintura, ventilador → cable
+- NO INTERCAMBIABLE: productos técnicamente incompatibles
+- RIESGO OPERACIONAL: diferencias que afecten el funcionamiento
 
 CATEGORÍAS QUE NO PUEDES MEZCLAR:
 - Filtros: aceite ≠ aire ≠ combustible ≠ hidráulico ≠ cabina
@@ -1806,11 +1806,12 @@ EJEMPLOS "NINGUNO" (casos graves):
 - "THINNER 55GL" → Alternativas con "1L" = NINGUNO (>10x diferencia)
 
 EJEMPLOS VÁLIDOS (números):
-- "MONITOR TEMP ABB" → Alternativas con "CONTROLADOR TEMP" = Número válido
-- "VENTILADOR AIRTEC VAV-32" → "VENTILADOR AIRTEC VAS-4" = Número válido
-- "FILTRO ACEITE WIX" → "FILTRO ACEITE FRAM" = Número válido
+- "MONITOR TEMP ABB" → "CONTROLADOR TEMP" = Número (especificaciones técnicas equivalentes)
+- "CAPACITOR 10MFD 380VAC" → "CAPACITOR 10UF 370-450VAC" = Número (sustituto directo)
+- "FILTRO ACEITE WIX" → "FILTRO ACEITE FRAM" = Número (equivalentes certificados)
+- "VENTILADOR AIRTEC VAV-32" → "VENTILADOR AIRTEC VAS-4" = Número (intercambiables)
 
-DECISIÓN: Si cumple función similar y no hay riesgo de seguridad, selecciona el número.`
+DECISIÓN: Si son sustitutos directos con especificaciones técnicas compatibles, selecciona el número.`
             },
             {
               role: "user",
