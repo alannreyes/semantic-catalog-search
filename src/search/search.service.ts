@@ -182,64 +182,19 @@ export class SearchService implements OnModuleDestroy {
         }
       );
 
-      // --- EVALUACIÓN DE SIMILITUD CON VALIDACIÓN GPT ---
-      // Si la similitud es alta (EXACTO/EQUIVALENTE), validar si es realmente lo que busca
+      // --- EVALUACIÓN DE SIMILITUD INICIAL ---
+      // Si la similitud es alta (EXACTO/EQUIVALENTE), proceder sin normalización
       if (["EXACTO", "EQUIVALENTE"].includes(initialResult.query_info.similitud)) {
-        this.logger.log(`Similitud alta detectada (${initialResult.query_info.similitud}), validando con GPT si es lo correcto.`, SearchService.name);
+        this.logger.log(`Similitud alta detectada (${initialResult.query_info.similitud}), procediendo a validación final.`, SearchService.name);
         
-        // VALIDACIÓN GPT #1: ¿El recomendado es realmente lo que busca?
-        const isValidRecommendation = await this.validateRecommendationWithGPT(query, initialResult.selected_product);
+        // Preparar resultado para validación final
+        const resultToValidate = {
+          ...initialResult,
+          normalizado: null
+        };
         
-        if (isValidRecommendation) {
-          // El recomendado es válido, retornar tal como está
-          const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
-          this.logger.log(`Recomendado validado por GPT como correcto.`, SearchService.name, { duration_ms: totalTime });
-          return { 
-            ...initialResult, 
-            normalizado: null,
-            timings: {
-              ...(initialResult.timings || {}),
-              total_time_ms: totalTime
-            }
-          };
-        } else {
-          // El recomendado no es válido, buscar en alternativas
-          this.logger.log(`Recomendado rechazado por GPT, buscando en alternativas.`, SearchService.name);
-          const validAlternative = await this.findValidAlternativeWithGPT(query, initialResult.alternatives);
-          
-          if (validAlternative) {
-            // Promover alternativa válida a recomendado
-            const updatedAlternatives = initialResult.alternatives.filter(alt => alt.codigo !== validAlternative.codigo);
-            const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
-            this.logger.log(`Alternativa promovida a recomendado por GPT.`, SearchService.name, { 
-              duration_ms: totalTime,
-              promoted_product: validAlternative.codigo 
-            });
-            
-            return {
-              ...initialResult,
-              selected_product: validAlternative,
-              alternatives: updatedAlternatives,
-              normalizado: null,
-              timings: {
-                ...(initialResult.timings || {}),
-                total_time_ms: totalTime
-              }
-            };
-          } else {
-            // No hay alternativa válida, continuar con normalización
-            this.logger.warn(
-              `⚠️ RECOMENDADO RECHAZADO: No se encontró alternativa válida entre ${initialResult.alternatives.length} opciones`,
-              SearchService.name,
-              {
-                query: query,
-                rejected_product: initialResult.selected_product?.codigo,
-                rejected_description: initialResult.selected_product?.descripcion,
-                action: 'CONTINUING_WITH_NORMALIZATION'
-              }
-            );
-          }
-        }
+        // Ir directamente a validación GPT final
+        return await this.performFinalGPTValidation(query, resultToValidate, startTime);
       }
 
       // --- NORMALIZACIÓN CON GPT-4o ---
@@ -295,85 +250,18 @@ export class SearchService implements OnModuleDestroy {
       );
 
       // --- EVALUACIÓN DESPUÉS DE NORMALIZACIÓN ---
-      // Si después de normalización obtenemos EXACTO/EQUIVALENTE, usar boost ranking
-      // Si no, retornar selected_product: null con alternatives rankeadas
-      const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
-      
-      if (["EXACTO", "EQUIVALENTE"].includes(resultAfterNormalization.query_info.similitud)) {
-        this.logger.log(
-          `Normalización exitosa: ${resultAfterNormalization.query_info.similitud}, respetando boost ranking.`,
-          SearchService.name,
-          { duration_ms: totalTime }
-        );
-        
-        return {
-          ...resultAfterNormalization,
-          normalizado: normalizedQuery,
-          timings: {
-            ...(resultAfterNormalization.timings || {}),
-            normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
-            total_time_ms: totalTime
-          }
-        };
-      } else {
-        // No hay match exacto/equivalente después de normalización
-        this.logger.log(
-          `Sin match exacto después de normalización (${resultAfterNormalization.query_info.similitud}), validando alternativas con GPT.`,
-          SearchService.name,
-          { duration_ms: totalTime }
-        );
-        
-        // VALIDACIÓN GPT #2: Buscar en alternativas cuando no hay recomendado válido
-        const validAlternative = await this.findValidAlternativeWithGPT(query, resultAfterNormalization.alternatives);
-        
-        if (validAlternative) {
-          // Promover alternativa válida a recomendado
-          const updatedAlternatives = resultAfterNormalization.alternatives.filter(alt => alt.codigo !== validAlternative.codigo);
-          this.logger.log(`Alternativa promovida a recomendado después de normalización.`, SearchService.name, { 
-            duration_ms: totalTime,
-            promoted_product: validAlternative.codigo 
-          });
-          
-          return {
-            query_info: resultAfterNormalization.query_info,
-            selected_product: validAlternative,
-            alternatives: updatedAlternatives,
-            boost_summary: resultAfterNormalization.boost_summary,
-            normalizado: normalizedQuery,
-            timings: {
-              ...(resultAfterNormalization.timings || {}),
-              normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
-              total_time_ms: totalTime
-            }
-          };
-        } else {
-          // No hay alternativa válida, recomendado queda null
-          this.logger.warn(
-            `⚠️ SIN RECOMENDACIÓN: No se encontró producto válido después de normalización y validación GPT`,
-            SearchService.name,
-            {
-              query: query,
-              normalized_query: normalizedQuery,
-              alternatives_evaluated: resultAfterNormalization.alternatives.length,
-              reason: 'NO_VALID_PRODUCT_FOUND',
-              action: 'RETURNING_NULL_RECOMMENDATION'
-            }
-          );
-          
-          return {
-            query_info: resultAfterNormalization.query_info,
-            selected_product: null,
-            alternatives: resultAfterNormalization.alternatives,
-            boost_summary: resultAfterNormalization.boost_summary,
-            normalizado: normalizedQuery,
-            timings: {
-              ...(resultAfterNormalization.timings || {}),
-              normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
-              total_time_ms: totalTime
-            }
-          };
+      // Preparar resultado con normalización para validación final
+      const resultToValidate = {
+        ...resultAfterNormalization,
+        normalizado: normalizedQuery,
+        timings: {
+          ...(resultAfterNormalization.timings || {}),
+          normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000
         }
-      }
+      };
+      
+      // SIEMPRE ir a validación GPT final, sin importar el threshold
+      return await this.performFinalGPTValidation(query, resultToValidate, startTime);
 
     } catch (error) {
       const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
@@ -1678,6 +1566,79 @@ INSTRUCCIONES:
     
     // Buscar modelo exacto como palabra completa o substring (códigos pueden ser alfanuméricos)
     return normalizedQuery.includes(normalizedModel);
+  }
+
+  // VALIDACIÓN GPT FINAL: Juicio final sobre el producto recomendado
+  private async performFinalGPTValidation(
+    query: string, 
+    result: any, 
+    startTime: bigint
+  ): Promise<any> {
+    const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
+    
+    // Si hay producto recomendado (EXACTO/EQUIVALENTE), validarlo
+    if (result.selected_product && ["EXACTO", "EQUIVALENTE"].includes(result.query_info.similitud)) {
+      this.logger.log(`🔍 VALIDACIÓN GPT FINAL: Verificando producto recomendado`, SearchService.name);
+      
+      const isValid = await this.validateRecommendationWithGPT(query, result.selected_product);
+      
+      if (isValid) {
+        // Producto validado, retornar tal como está
+        this.logger.log(`✅ PRODUCTO VALIDADO POR GPT: ${result.selected_product.codigo}`, SearchService.name);
+        return {
+          ...result,
+          timings: {
+            ...result.timings,
+            total_time_ms: totalTime
+          }
+        };
+      } else {
+        // Producto rechazado, buscar en alternativas
+        this.logger.warn(`❌ PRODUCTO RECHAZADO POR GPT: ${result.selected_product.codigo}`, SearchService.name);
+      }
+    }
+    
+    // No hay producto válido o fue rechazado, buscar en alternativas
+    this.logger.log(`🔍 BUSCANDO EN ALTERNATIVAS: ${result.alternatives?.length || 0} opciones`, SearchService.name);
+    
+    const validAlternative = await this.findValidAlternativeWithGPT(query, result.alternatives || []);
+    
+    if (validAlternative) {
+      // Promover alternativa a recomendado
+      const updatedAlternatives = result.alternatives.filter(alt => alt.codigo !== validAlternative.codigo);
+      this.logger.log(`✅ ALTERNATIVA VALIDADA POR GPT: ${validAlternative.codigo}`, SearchService.name);
+      
+      return {
+        ...result,
+        selected_product: validAlternative,
+        alternatives: updatedAlternatives,
+        timings: {
+          ...result.timings,
+          total_time_ms: totalTime
+        }
+      };
+    }
+    
+    // No hay producto válido en absoluto
+    this.logger.warn(
+      `⚠️ JUICIO FINAL: NO HAY PRODUCTO VÁLIDO`,
+      SearchService.name,
+      {
+        query: query,
+        normalized_query: result.normalizado,
+        alternatives_evaluated: result.alternatives?.length || 0,
+        reason: 'GPT_VALIDATION_REJECTED_ALL'
+      }
+    );
+    
+    return {
+      ...result,
+      selected_product: null,
+      timings: {
+        ...result.timings,
+        total_time_ms: totalTime
+      }
+    };
   }
 
   // VALIDACIÓN GPT #1: Verifica si el producto recomendado es realmente lo que busca el usuario
