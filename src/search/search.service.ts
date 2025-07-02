@@ -182,20 +182,55 @@ export class SearchService implements OnModuleDestroy {
         }
       );
 
-      // --- EVALUACIÓN DE SIMILITUD ---
-      // Si la similitud es alta (EXACTO/EQUIVALENTE), respeta el boost ranking y retorna sin normalización
+      // --- EVALUACIÓN DE SIMILITUD CON VALIDACIÓN GPT ---
+      // Si la similitud es alta (EXACTO/EQUIVALENTE), validar si es realmente lo que busca
       if (["EXACTO", "EQUIVALENTE"].includes(initialResult.query_info.similitud)) {
-        this.logger.log(`Similitud alta detectada (${initialResult.query_info.similitud}), respetando boost ranking.`, SearchService.name);
-        const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
-        this.logger.log(`Búsqueda completada (sin normalización).`, SearchService.name, { duration_ms: totalTime });
-        return { 
-          ...initialResult, 
-          normalizado: null,
-          timings: {
-            ...(initialResult.timings || {}),
-            total_time_ms: totalTime
+        this.logger.log(`Similitud alta detectada (${initialResult.query_info.similitud}), validando con GPT si es lo correcto.`, SearchService.name);
+        
+        // VALIDACIÓN GPT #1: ¿El recomendado es realmente lo que busca?
+        const isValidRecommendation = await this.validateRecommendationWithGPT(query, initialResult.selected_product);
+        
+        if (isValidRecommendation) {
+          // El recomendado es válido, retornar tal como está
+          const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
+          this.logger.log(`Recomendado validado por GPT como correcto.`, SearchService.name, { duration_ms: totalTime });
+          return { 
+            ...initialResult, 
+            normalizado: null,
+            timings: {
+              ...(initialResult.timings || {}),
+              total_time_ms: totalTime
+            }
+          };
+        } else {
+          // El recomendado no es válido, buscar en alternativas
+          this.logger.log(`Recomendado rechazado por GPT, buscando en alternativas.`, SearchService.name);
+          const validAlternative = await this.findValidAlternativeWithGPT(query, initialResult.alternatives);
+          
+          if (validAlternative) {
+            // Promover alternativa válida a recomendado
+            const updatedAlternatives = initialResult.alternatives.filter(alt => alt.codigo !== validAlternative.codigo);
+            const totalTime = Number(process.hrtime.bigint() - startTime) / 1_000_000;
+            this.logger.log(`Alternativa promovida a recomendado por GPT.`, SearchService.name, { 
+              duration_ms: totalTime,
+              promoted_product: validAlternative.codigo 
+            });
+            
+            return {
+              ...initialResult,
+              selected_product: validAlternative,
+              alternatives: updatedAlternatives,
+              normalizado: null,
+              timings: {
+                ...(initialResult.timings || {}),
+                total_time_ms: totalTime
+              }
+            };
+          } else {
+            // No hay alternativa válida, continuar con normalización
+            this.logger.log(`No se encontró alternativa válida, continuando con normalización.`, SearchService.name);
           }
-        };
+        }
       }
 
       // --- NORMALIZACIÓN CON GPT-4o ---
@@ -274,23 +309,51 @@ export class SearchService implements OnModuleDestroy {
       } else {
         // No hay match exacto/equivalente después de normalización
         this.logger.log(
-          `Sin match exacto después de normalización (${resultAfterNormalization.query_info.similitud}), retornando alternatives.`,
+          `Sin match exacto después de normalización (${resultAfterNormalization.query_info.similitud}), validando alternativas con GPT.`,
           SearchService.name,
           { duration_ms: totalTime }
         );
         
-        return {
-          query_info: resultAfterNormalization.query_info,
-          selected_product: null,
-          alternatives: resultAfterNormalization.alternatives,
-          boost_summary: resultAfterNormalization.boost_summary,
-          normalizado: normalizedQuery,
-          timings: {
-            ...(resultAfterNormalization.timings || {}),
-            normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
-            total_time_ms: totalTime
-          }
-        };
+        // VALIDACIÓN GPT #2: Buscar en alternativas cuando no hay recomendado válido
+        const validAlternative = await this.findValidAlternativeWithGPT(query, resultAfterNormalization.alternatives);
+        
+        if (validAlternative) {
+          // Promover alternativa válida a recomendado
+          const updatedAlternatives = resultAfterNormalization.alternatives.filter(alt => alt.codigo !== validAlternative.codigo);
+          this.logger.log(`Alternativa promovida a recomendado después de normalización.`, SearchService.name, { 
+            duration_ms: totalTime,
+            promoted_product: validAlternative.codigo 
+          });
+          
+          return {
+            query_info: resultAfterNormalization.query_info,
+            selected_product: validAlternative,
+            alternatives: updatedAlternatives,
+            boost_summary: resultAfterNormalization.boost_summary,
+            normalizado: normalizedQuery,
+            timings: {
+              ...(resultAfterNormalization.timings || {}),
+              normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
+              total_time_ms: totalTime
+            }
+          };
+        } else {
+          // No hay alternativa válida, recomendado queda null
+          this.logger.log(`No se encontró alternativa válida después de normalización, recomendado = null.`, SearchService.name);
+          
+          return {
+            query_info: resultAfterNormalization.query_info,
+            selected_product: null,
+            alternatives: resultAfterNormalization.alternatives,
+            boost_summary: resultAfterNormalization.boost_summary,
+            normalizado: normalizedQuery,
+            timings: {
+              ...(resultAfterNormalization.timings || {}),
+              normalization_time_ms: Number(normalizeEnd - normalizeStart) / 1_000_000,
+              total_time_ms: totalTime
+            }
+          };
+        }
       }
 
     } catch (error) {
@@ -1596,6 +1659,163 @@ INSTRUCCIONES:
     
     // Buscar modelo exacto como palabra completa o substring (códigos pueden ser alfanuméricos)
     return normalizedQuery.includes(normalizedModel);
+  }
+
+  // VALIDACIÓN GPT #1: Verifica si el producto recomendado es realmente lo que busca el usuario
+  private async validateRecommendationWithGPT(query: string, product: any): Promise<boolean> {
+    const stepStartTime = process.hrtime.bigint();
+    try {
+      this.logger.log(
+        `Validando recomendado con GPT-4o. Query: "${query}", Producto: "${product?.descripcion}"`,
+        SearchService.name
+      );
+
+      const response = await this.rateLimiter.executeChat(
+        () => this.openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: `Analiza si este producto recomendado es funcionalmente intercambiable con lo que busca el usuario.
+
+Responde únicamente con "SI" o "NO".
+
+Criterios:
+- SI: Son el mismo tipo de producto, misma función, intercambiables para el uso que busca el usuario
+- NO: Son productos diferentes, distintos usos, no intercambiables
+
+Ejemplos:
+- Usuario busca "cable HDMI" → Producto "Cable HDMI 2.1 4K Samsung" = SI
+- Usuario busca "cable HDMI" → Producto "Adaptador USB-C a HDMI" = NO  
+- Usuario busca "monitor 24 pulgadas" → Producto "Monitor LED 24" LG Ultrawide" = SI
+- Usuario busca "monitor 24 pulgadas" → Producto "Televisor LED 24 pulgadas" = NO`
+            },
+            {
+              role: "user",
+              content: `CONSULTA DEL USUARIO: "${query}"
+PRODUCTO RECOMENDADO: "${product?.descripcion || 'N/A'}" - Marca: ${product?.marca || 'N/A'}`
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 10
+        }),
+        `validate-recommendation-${Date.now()}`
+      );
+
+      const gptResponse = response.choices[0]?.message?.content?.trim().toUpperCase();
+      const isValid = gptResponse === 'SI';
+      
+      const totalStepTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
+      this.logger.log(
+        `Validación GPT completada: ${isValid ? 'VÁLIDO' : 'INVÁLIDO'}`,
+        SearchService.name,
+        {
+          duration_ms: totalStepTime,
+          gpt_response: gptResponse,
+          query: query,
+          product_code: product?.codigo
+        }
+      );
+
+      return isValid;
+
+    } catch (error) {
+      const totalStepTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
+      this.logger.error(
+        `Error en validación GPT del recomendado.`,
+        error.stack,
+        SearchService.name,
+        { duration_ms: totalStepTime, error_message: error.message }
+      );
+      // En caso de error, ser conservador y considerar inválido
+      return false;
+    }
+  }
+
+  // VALIDACIÓN GPT #2: Busca en alternativas cuál es realmente lo que busca el usuario
+  private async findValidAlternativeWithGPT(query: string, alternatives: any[]): Promise<any | null> {
+    const stepStartTime = process.hrtime.bigint();
+    try {
+      if (!alternatives || alternatives.length === 0) {
+        this.logger.log(`No hay alternativas para evaluar con GPT.`, SearchService.name);
+        return null;
+      }
+
+      this.logger.log(
+        `Buscando alternativa válida con GPT-4o. Query: "${query}", Alternativas: ${alternatives.length}`,
+        SearchService.name
+      );
+
+      // Preparar lista de alternativas para GPT
+      const alternativesList = alternatives.slice(0, 10).map((alt, index) => 
+        `${index + 1}. ${alt.descripcion} - Marca: ${alt.marca || 'N/A'}`
+      ).join('\n');
+
+      const response = await this.rateLimiter.executeChat(
+        () => this.openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: `El usuario busca algo específico pero no hay coincidencia exacta. Analiza cuál de estas alternativas SÍ es funcionalmente lo mismo que busca el usuario.
+
+Responde únicamente con el NÚMERO de la alternativa que es funcionalmente intercambiable con lo que busca el usuario, o "NINGUNO" si no hay ninguna válida.
+
+Criterios estrictos:
+- Debe ser el mismo tipo de producto para el mismo uso
+- Debe servir para el mismo propósito/función
+- Deben ser intercambiables en la aplicación que necesita el usuario`
+            },
+            {
+              role: "user",
+              content: `CONSULTA DEL USUARIO: "${query}"
+
+ALTERNATIVAS:
+${alternativesList}
+
+Responde solo el número o "NINGUNO".`
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 20
+        }),
+        `find-alternative-${Date.now()}`
+      );
+
+      const gptResponse = response.choices[0]?.message?.content?.trim().toUpperCase();
+      
+      let selectedAlternative = null;
+      if (gptResponse !== 'NINGUNO' && gptResponse !== 'NINGUNA') {
+        const selectedIndex = parseInt(gptResponse) - 1;
+        if (selectedIndex >= 0 && selectedIndex < alternatives.length) {
+          selectedAlternative = alternatives[selectedIndex];
+        }
+      }
+      
+      const totalStepTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
+      this.logger.log(
+        `Búsqueda de alternativa GPT completada: ${selectedAlternative ? 'ENCONTRADA' : 'NO ENCONTRADA'}`,
+        SearchService.name,
+        {
+          duration_ms: totalStepTime,
+          gpt_response: gptResponse,
+          selected_product: selectedAlternative?.codigo || null,
+          query: query
+        }
+      );
+
+      return selectedAlternative;
+
+    } catch (error) {
+      const totalStepTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
+      this.logger.error(
+        `Error en búsqueda de alternativa con GPT.`,
+        error.stack,
+        SearchService.name,
+        { duration_ms: totalStepTime, error_message: error.message }
+      );
+      return null;
+    }
   }
 
   async getDebugConfig() {

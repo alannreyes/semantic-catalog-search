@@ -22,11 +22,11 @@ export class OpenAIRateLimiterService {
   // Configuración por ambiente
   private readonly isDevelopment: boolean;
   
-  // Control de timing para delay adaptativo
+  // Control de timing para delay adaptativo (eliminado para máxima velocidad)
   private lastEmbeddingRequestTime = 0;
   private lastChatRequestTime = 0;
-  private readonly MIN_TIME_BETWEEN_REQUESTS = 550; // 550ms = ~109 RPM máximo
-  private readonly JITTER_RANGE = 100; // ±50ms de variación
+  private readonly MIN_TIME_BETWEEN_REQUESTS = 0; // Sin delay entre requests
+  private readonly JITTER_RANGE = 0; // Sin jitter para máxima velocidad
   
   // Métricas simples
   private metrics: RateLimitMetrics = {
@@ -40,25 +40,24 @@ export class OpenAIRateLimiterService {
   constructor(private readonly configService: ConfigService) {
     this.isDevelopment = this.configService.get('NODE_ENV') !== 'production';
     // Configuración para embeddings (text-embedding-3-large)
-    // Límites: 10,000 RPM, 10,000,000 TPM
-    // IMPORTANTE: OpenAI evalúa rate limits en ventanas de 1-10 segundos
-    // Si enviamos 100 requests en 10 segundos = 600 RPM proyectado = rate limit!
+    // Límites Tier 5: 5,000,000 RPM, 5,000,000,000 TPM
+    // Configuración optimizada para máxima velocidad
     const embeddingConfig = this.isDevelopment ? {
-      // Desarrollo: distribuir uniformemente
-      minTime: 120, // 8.33 requests/segundo = 500 RPM máximo
-      maxConcurrent: 5,
-      reservoir: 80, // 80 requests iniciales
-      reservoirRefreshAmount: 8, // 8 requests cada
-      reservoirRefreshInterval: 1000, // 1 segundo (8 RPS = 480 RPM)
-      highWater: 40,
+      // Desarrollo: máxima velocidad
+      minTime: 10, // 100 requests/segundo = 6000 RPM
+      maxConcurrent: 30,
+      reservoir: 1000, // 1000 requests iniciales
+      reservoirRefreshAmount: 100, // 100 requests cada
+      reservoirRefreshInterval: 1000, // 1 segundo (100 RPS = 6000 RPM)
+      highWater: 200,
     } : {
-      // Producción: aún más conservador
-      minTime: 150, // 6.67 requests/segundo = 400 RPM máximo  
-      maxConcurrent: 3,
-      reservoir: 60, // 60 requests iniciales
-      reservoirRefreshAmount: 6, // 6 requests cada
-      reservoirRefreshInterval: 1000, // 1 segundo (6 RPS = 360 RPM)
-      highWater: 30,
+      // Producción: alta velocidad pero estable
+      minTime: 15, // 67 requests/segundo = 4000 RPM  
+      maxConcurrent: 25,
+      reservoir: 800, // 800 requests iniciales
+      reservoirRefreshAmount: 67, // 67 requests cada
+      reservoirRefreshInterval: 1000, // 1 segundo (67 RPS = 4000 RPM)
+      highWater: 150,
     };
 
     this.embeddingLimiter = new Bottleneck({
@@ -75,24 +74,24 @@ export class OpenAIRateLimiterService {
     });
 
     // Configuración para chat completions (GPT-4o)
-    // Límites: 10,000 RPM, 30,000 TPM
-    // Aplicar la misma lógica de distribución uniforme
+    // Límites Tier 5: 10,000 RPM, 30,000,000 TPM
+    // Configuración optimizada para máxima velocidad
     const chatConfig = this.isDevelopment ? {
-      // Desarrollo: 3 RPS = 180 RPM
-      minTime: 350, // ~2.86 requests/segundo
-      maxConcurrent: 3,
-      reservoir: 30,
-      reservoirRefreshAmount: 3,
-      reservoirRefreshInterval: 1000, // 3 requests por segundo
-      highWater: 20,
+      // Desarrollo: máxima velocidad
+      minTime: 30, // 33 requests/segundo = 2000 RPM
+      maxConcurrent: 15,
+      reservoir: 200,
+      reservoirRefreshAmount: 33,
+      reservoirRefreshInterval: 1000, // 33 requests por segundo
+      highWater: 100,
     } : {
-      // Producción: 2 RPS = 120 RPM
-      minTime: 500, // 2 requests/segundo
-      maxConcurrent: 2,
-      reservoir: 20,
-      reservoirRefreshAmount: 2,
-      reservoirRefreshInterval: 1000, // 2 requests por segundo
-      highWater: 10,
+      // Producción: alta velocidad
+      minTime: 40, // 25 requests/segundo = 1500 RPM
+      maxConcurrent: 12,
+      reservoir: 150,
+      reservoirRefreshAmount: 25,
+      reservoirRefreshInterval: 1000, // 25 requests por segundo
+      highWater: 75,
     };
 
     this.chatLimiter = new Bottleneck({
@@ -254,8 +253,7 @@ export class OpenAIRateLimiterService {
         async () => {
           this.logger.debug(`Executing embedding operation: ${operationId || 'unnamed'}`);
           
-          // NUEVO: Aplicar delay adaptativo ANTES de hacer la request
-          const delayApplied = await this.enforceAdaptiveDelay(true);
+          // Delay adaptativo eliminado para máxima velocidad
           
           // Implementar pausa de 10 segundos en caso de 429
           let lastError;
@@ -346,8 +344,7 @@ export class OpenAIRateLimiterService {
         async () => {
           this.logger.debug(`Executing chat operation: ${operationId || 'unnamed'}`);
           
-          // NUEVO: Aplicar delay adaptativo ANTES de hacer la request
-          const delayApplied = await this.enforceAdaptiveDelay(false);
+          // Delay adaptativo eliminado para máxima velocidad
           
           // Implementar pausa de 10 segundos en caso de 429
           let lastError;
