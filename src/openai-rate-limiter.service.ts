@@ -22,6 +22,12 @@ export class OpenAIRateLimiterService {
   // Configuración por ambiente
   private readonly isDevelopment: boolean;
   
+  // Control de timing para delay adaptativo
+  private lastEmbeddingRequestTime = 0;
+  private lastChatRequestTime = 0;
+  private readonly MIN_TIME_BETWEEN_REQUESTS = 550; // 550ms = ~109 RPM máximo
+  private readonly JITTER_RANGE = 100; // ±50ms de variación
+  
   // Métricas simples
   private metrics: RateLimitMetrics = {
     totalRequests: 0,
@@ -185,6 +191,14 @@ export class OpenAIRateLimiterService {
     const embeddingCounts = this.embeddingLimiter.counts();
     const chatCounts = this.chatLimiter.counts();
     
+    const now = Date.now();
+    const timeSinceLastEmbedding = this.lastEmbeddingRequestTime > 0 
+      ? now - this.lastEmbeddingRequestTime 
+      : null;
+    const timeSinceLastChat = this.lastChatRequestTime > 0 
+      ? now - this.lastChatRequestTime 
+      : null;
+    
     this.logger.log(
       'Rate Limiter Metrics',
       {
@@ -192,17 +206,24 @@ export class OpenAIRateLimiterService {
         embedding: {
           queued: embeddingCounts.QUEUED,
           running: embeddingCounts.RUNNING,
-          done: embeddingCounts.DONE
+          done: embeddingCounts.DONE,
+          timeSinceLastRequest: timeSinceLastEmbedding
         },
         chat: {
           queued: chatCounts.QUEUED,
           running: chatCounts.RUNNING,
-          done: chatCounts.DONE
+          done: chatCounts.DONE,
+          timeSinceLastRequest: timeSinceLastChat
         },
         total: {
           requests: this.metrics.totalRequests,
           rateLimitHits: this.metrics.rateLimitHits,
-          queuedRequests: embeddingCounts.QUEUED + chatCounts.QUEUED
+          queuedRequests: embeddingCounts.QUEUED + chatCounts.QUEUED,
+          avgWaitTime: this.metrics.avgWaitTime.toFixed(0)
+        },
+        config: {
+          minTimeBetweenRequests: this.MIN_TIME_BETWEEN_REQUESTS,
+          effectiveRPM: Math.floor(60000 / this.MIN_TIME_BETWEEN_REQUESTS)
         }
       }
     );
@@ -233,7 +254,10 @@ export class OpenAIRateLimiterService {
         async () => {
           this.logger.debug(`Executing embedding operation: ${operationId || 'unnamed'}`);
           
-          // Implementar retry manual con exponential backoff para 429
+          // NUEVO: Aplicar delay adaptativo ANTES de hacer la request
+          const delayApplied = await this.enforceAdaptiveDelay(true);
+          
+          // Implementar pausa de 10 segundos en caso de 429
           let lastError;
           for (let attempt = 0; attempt < 5; attempt++) {
             try {
@@ -241,15 +265,28 @@ export class OpenAIRateLimiterService {
             } catch (error) {
               if (error?.status === 429 || error?.response?.status === 429) {
                 lastError = error;
-                const backoff = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 30000);
                 const rateLimitInfo = this.extractRateLimitInfo(error);
+                
+                // CAMBIO: Esperar 10 segundos fijos cuando hay 429
+                const waitTime = 10000; // 10 segundos
                 this.logger.warn(
-                  `Rate limit hit on attempt ${attempt + 1}, waiting ${backoff}ms`,
-                  { operationId, ...rateLimitInfo }
+                  `⚠️ Rate limit 429 detectado. Pausando ${waitTime/1000} segundos antes de reintentar...`,
+                  { 
+                    operationId, 
+                    attempt: attempt + 1,
+                    maxAttempts: 5,
+                    ...rateLimitInfo 
+                  }
                 );
-                await new Promise(resolve => setTimeout(resolve, backoff));
+                
+                // Esperar 10 segundos
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                
+                // Continuar con el siguiente intento
+                this.logger.log(`Reintentando después de pausa de 10 segundos...`);
                 continue;
               }
+              // Si no es 429, lanzar el error inmediatamente
               throw error;
             }
           }
@@ -301,10 +338,51 @@ export class OpenAIRateLimiterService {
     
     try {
       const result = await this.chatLimiter.schedule(
-        { id: operationId || `chat-${Date.now()}` },
+        { 
+          id: operationId || `chat-${Date.now()}`,
+          expiration: 60000,
+          priority: 5
+        },
         async () => {
           this.logger.debug(`Executing chat operation: ${operationId || 'unnamed'}`);
-          return await operation();
+          
+          // NUEVO: Aplicar delay adaptativo ANTES de hacer la request
+          const delayApplied = await this.enforceAdaptiveDelay(false);
+          
+          // Implementar pausa de 10 segundos en caso de 429
+          let lastError;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              return await operation();
+            } catch (error) {
+              if (error?.status === 429 || error?.response?.status === 429) {
+                lastError = error;
+                const rateLimitInfo = this.extractRateLimitInfo(error);
+                
+                // CAMBIO: Esperar 10 segundos fijos cuando hay 429
+                const waitTime = 10000; // 10 segundos
+                this.logger.warn(
+                  `⚠️ Chat rate limit 429 detectado. Pausando ${waitTime/1000} segundos antes de reintentar...`,
+                  { 
+                    operationId, 
+                    attempt: attempt + 1,
+                    maxAttempts: 5,
+                    ...rateLimitInfo 
+                  }
+                );
+                
+                // Esperar 10 segundos
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                
+                // Continuar con el siguiente intento
+                this.logger.log(`Reintentando chat después de pausa de 10 segundos...`);
+                continue;
+              }
+              // Si no es 429, lanzar el error inmediatamente
+              throw error;
+            }
+          }
+          throw lastError;
         }
       );
       
@@ -338,6 +416,46 @@ export class OpenAIRateLimiterService {
   private updateAvgWaitTime(duration: number): void {
     this.metrics.avgWaitTime = 
       (this.metrics.avgWaitTime + duration) / 2;
+  }
+
+  /**
+   * Implementa un delay adaptativo con jitter para evitar el límite de 100 requests
+   */
+  private async enforceAdaptiveDelay(isEmbedding: boolean): Promise<number> {
+    const now = Date.now();
+    const lastRequestTime = isEmbedding ? this.lastEmbeddingRequestTime : this.lastChatRequestTime;
+    const timeSinceLastRequest = now - lastRequestTime;
+    
+    // Calcular delay necesario
+    let delayMs = 0;
+    if (lastRequestTime > 0 && timeSinceLastRequest < this.MIN_TIME_BETWEEN_REQUESTS) {
+      // Necesitamos esperar
+      delayMs = this.MIN_TIME_BETWEEN_REQUESTS - timeSinceLastRequest;
+      
+      // Agregar jitter para evitar patrones
+      const jitter = (Math.random() - 0.5) * this.JITTER_RANGE;
+      delayMs = Math.max(0, delayMs + jitter);
+      
+      this.logger.debug(
+        `Applying adaptive delay: ${delayMs.toFixed(0)}ms for ${isEmbedding ? 'embedding' : 'chat'}`,
+        {
+          timeSinceLastRequest,
+          minTimeBetweenRequests: this.MIN_TIME_BETWEEN_REQUESTS,
+          jitter: jitter.toFixed(0)
+        }
+      );
+      
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+    
+    // Actualizar último tiempo de request
+    if (isEmbedding) {
+      this.lastEmbeddingRequestTime = Date.now();
+    } else {
+      this.lastChatRequestTime = Date.now();
+    }
+    
+    return delayMs;
   }
 
   /**
