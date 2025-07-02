@@ -1656,42 +1656,13 @@ INSTRUCCIONES:
           messages: [
             {
               role: "system",
-              content: `Eres un experto en productos industriales. Tu trabajo es proteger al usuario de recibir cotizaciones incorrectas.
+              content: `Industrial product expert. Answer ONLY "YES" or "NO".
 
-Responde ÚNICAMENTE "SI" o "NO".
+YES if products serve same industrial function and are reasonably interchangeable. Don't be literal about specifications - focus on functional compatibility.
 
-REGLAS PARA RESPONDER "SI":
-1. SUSTITUTOS DIRECTOS: Productos exactos, similares o intercambiables
-2. ESPECIFICACIONES TÉCNICAS: Mismas capacidades, rangos, voltajes, presiones
-3. FUNCIÓN IDÉNTICA: Mismo propósito, misma aplicación industrial
-4. EQUIVALENTES CERTIFICADOS: Intercambiables según especificaciones técnicas
-5. COMPATIBILIDAD TOTAL: 100% intercambiable en la aplicación
+NO only for completely different functions or major safety incompatibilities.
 
-RESPONDE "NO" SOLO SI:
-- FUNCIÓN DIFERENTE: filtro aceite → pintura, ventilador → cable
-- ESPECIFICACIONES INCOMPATIBLES: 220V vs 440V, 1L vs 200L
-- NO INTERCAMBIABLE: productos técnicamente incompatibles
-- RIESGO DE OPERACIÓN: diferencias que afecten funcionamiento
-
-VALIDACIÓN DE CATEGORÍAS:
-- Filtro aceite ≠ Filtro aire ≠ Filtro combustible ≠ Filtro hidráulico
-- Aceite motor ≠ Aceite hidráulico ≠ Aceite transmisión
-- Pintura ≠ Primer ≠ Thinner ≠ Solvente
-- Cable eléctrico ≠ Cable datos ≠ Cable control
-
-EJEMPLOS DE "NO" (casos graves):
-- "FILTRO ACEITE" → "PINTURA EPÓXICA" = NO (función completamente diferente)
-- "VENTILADOR 220V" → "VENTILADOR 440V" = NO (voltaje incompatible)
-- "THINNER 55GL" → "THINER 1L" = NO (tamaño muy diferente, >10x)
-- "CABLE ELÉCTRICO" → "FILTRO ACEITE" = NO (productos diferentes)
-
-EJEMPLOS DE "SI" (sustitutos directos):
-- "MONITOR TEMPERATURA ABB MIT114" → "CONTROLADOR TEMPERATURA TECSYSTEM" = SI (especificaciones técnicas equivalentes)
-- "VENTILADOR AIRTEC VAV-32" → "VENTILADOR AIRTEC VAS-4" = SI (intercambiables por especificaciones)
-- "FILTRO ACEITE WIX 51348" → "FILTRO ACEITE FRAM PH3593A" = SI (sustitutos directos certificados)
-- "CAPACITOR 10MFD 380VAC" → "CAPACITOR 10UF 370-450VAC" = SI (especificaciones técnicas compatibles)
-
-DECISIÓN FINAL: Si son sustitutos directos con especificaciones técnicas compatibles, responde "SI".`
+Decision: If products can substitute each other in real industrial applications, answer YES.`
             },
             {
               role: "user",
@@ -1770,48 +1741,13 @@ ANALIZA CUIDADOSAMENTE:
           messages: [
             {
               role: "system",
-              content: `Eres un experto en productos industriales. Tu trabajo es proteger al usuario de recibir cotizaciones incorrectas.
+              content: `Industrial product expert. Answer with alternative NUMBER or "NONE".
 
-Responde ÚNICAMENTE con el NÚMERO de la alternativa correcta, o "NINGUNO" si NO HAY ninguna que sea EXACTAMENTE lo que busca.
+Select alternative if it serves same industrial function and can reasonably substitute the requested product. Don't be literal about specifications - focus on functional compatibility.
 
-REGLAS PARA SELECCIONAR ALTERNATIVA:
-1. SUSTITUTOS DIRECTOS: Productos exactos, similares o intercambiables
-2. ESPECIFICACIONES TÉCNICAS: Mismas capacidades, voltajes, presiones, dimensiones
-3. EQUIVALENTES CERTIFICADOS: Intercambiables según especificaciones técnicas
-4. COMPATIBILIDAD TOTAL: 100% intercambiable en la aplicación
-5. FUNCIÓN IDÉNTICA: Mismo propósito y aplicación industrial
+Answer "NONE" only for completely different functions or major safety incompatibilities.
 
-RECHAZA SOLO SI:
-- ESPECIFICACIONES INCOMPATIBLES: voltajes, presiones, tamaños incompatibles
-- FUNCIÓN DIFERENTE: filtro → pintura, ventilador → cable
-- NO INTERCAMBIABLE: productos técnicamente incompatibles
-- RIESGO OPERACIONAL: diferencias que afecten el funcionamiento
-
-CATEGORÍAS QUE NO PUEDES MEZCLAR:
-- Filtros: aceite ≠ aire ≠ combustible ≠ hidráulico ≠ cabina
-- Aceites: motor ≠ hidráulico ≠ transmisión ≠ diferencial
-- Pinturas: pintura ≠ primer ≠ sellador ≠ barniz
-- Solventes: thinner ≠ acetona ≠ alcohol ≠ varsol
-- Cables: eléctrico ≠ datos ≠ control ≠ coaxial
-
-VALIDACIÓN DE TAMAÑOS:
-- 1 galón = 3.785L (NO es 5L)
-- 5 galones = 18.9L (NO es 20L)
-- 55 galones = 208L (NO es 200L ni 5L)
-- Verificar SIEMPRE unidades: L ≠ GL, kg ≠ lb
-
-EJEMPLOS "NINGUNO" (casos graves):
-- "FILTRO ACEITE" → Alternativas con "PINTURA" = NINGUNO
-- "VENTILADOR 220V" → Alternativas con "VENTILADOR 440V" = NINGUNO
-- "THINNER 55GL" → Alternativas con "1L" = NINGUNO (>10x diferencia)
-
-EJEMPLOS VÁLIDOS (números):
-- "MONITOR TEMP ABB" → "CONTROLADOR TEMP" = Número (especificaciones técnicas equivalentes)
-- "CAPACITOR 10MFD 380VAC" → "CAPACITOR 10UF 370-450VAC" = Número (sustituto directo)
-- "FILTRO ACEITE WIX" → "FILTRO ACEITE FRAM" = Número (equivalentes certificados)
-- "VENTILADOR AIRTEC VAV-32" → "VENTILADOR AIRTEC VAS-4" = Número (intercambiables)
-
-DECISIÓN: Si son sustitutos directos con especificaciones técnicas compatibles, selecciona el número.`
+Decision: If any alternative can substitute the requested product in real industrial applications, return its number.`
             },
             {
               role: "user",
