@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { VisionController } from './vision.controller';
 import { VisionService } from './vision.service';
 import { OpenAIRateLimiterService } from './openai-rate-limiter.service';
+import { RateLimitInterceptor } from './rate-limit.interceptor';
 import { Logger } from '@nestjs/common';
 import * as Joi from 'joi';
 import { SearchModule } from './search/search.module';
@@ -54,6 +55,7 @@ import { SyncModule } from './sync/sync.module';
   providers: [
     VisionService,
     OpenAIRateLimiterService,
+    RateLimitInterceptor,
     {
       provide: Logger,
       useValue: new Logger('AppModule'),

@@ -1,8 +1,10 @@
-import { Controller, Post, Body, Logger, Get } from '@nestjs/common';
+import { Controller, Post, Body, Logger, Get, UseInterceptors } from '@nestjs/common';
 import { SearchService } from './search.service';
 import { SearchDto } from './dto/search.dto';
+import { RateLimitInterceptor } from '../rate-limit.interceptor';
 
 @Controller()
+@UseInterceptors(RateLimitInterceptor)
 export class SearchController {
   private readonly logger = new Logger(SearchController.name);
   
