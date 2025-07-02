@@ -26,7 +26,7 @@ async function bootstrap() {
   // Rate limiting - protección contra ataques DDoS
   app.use(rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
-    max: isProduction ? 100 : 1000, // Límite más estricto en producción
+    max: 1000, // Límite uniforme para desarrollo y producción
     message: {
       error: 'Too many requests',
       message: 'Rate limit exceeded. Try again later.'
