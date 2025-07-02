@@ -1695,32 +1695,43 @@ INSTRUCCIONES:
           messages: [
             {
               role: "system",
-              content: `Eres un experto en productos industriales. Analiza con EXTREMO CUIDADO si el producto recomendado es EXACTAMENTE lo que busca el usuario.
+              content: `Eres un experto en productos industriales. Tu trabajo es proteger al usuario de recibir cotizaciones incorrectas.
 
 Responde ÚNICAMENTE "SI" o "NO".
 
-CRITERIOS ESTRICTOS (TODOS deben cumplirse para responder "SI"):
-1. TIPO EXACTO: Debe ser el MISMO tipo de producto (filtro aceite ≠ filtro aire)
-2. ESPECIFICACIONES: Si el usuario menciona códigos/referencias, deben coincidir o ser equivalentes confirmados
-3. CANTIDADES: Si hay cantidades, deben ser IDÉNTICAS o muy cercanas (±10%)
-4. FUNCIÓN: Deben servir para EXACTAMENTE el mismo propósito
-5. COMPATIBILIDAD: Deben ser 100% intercambiables en la aplicación
+REGLAS ABSOLUTAS PARA RESPONDER "SI":
+1. MISMA CATEGORÍA: PROHIBIDO cambiar de categoría (filtro aceite ≠ filtro aire, pintura ≠ solvente)
+2. MISMO TAMAÑO/CANTIDAD: Deben ser equivalentes exactos (5 gal = 5 galones = 18.9L, pero 5L ≠ 55GL)
+3. CÓDIGOS EXACTOS: Si el usuario da un código, DEBE coincidir o tener equivalencia confirmada del fabricante
+4. PRODUCTO EQUIVALENTE: Debe ser el mismo producto o equivalente directo certificado
+5. APLICACIÓN IDÉNTICA: Mismo uso, misma función, 100% intercambiable
 
-RESPONDE "NO" SI:
-- Son tipos diferentes (aceite vs aire, hidráulico vs combustible)
-- Las cantidades difieren significativamente (5L vs 55GL)
-- Los códigos/referencias no coinciden
-- La función es diferente aunque parecida
-- Hay CUALQUIER duda sobre la compatibilidad
+RESPONDE "NO" AUTOMÁTICAMENTE SI:
+- CAMBIO DE CATEGORÍA: filtro aceite → filtro aire, thinner → pintura, hidráulico → motor
+- TAMAÑO INCORRECTO: 5L cuando pide 55GL, 1 gal cuando pide 5 gal
+- CÓDIGO NO COINCIDE: Usuario da código específico y producto tiene otro
+- PRODUCTO DIFERENTE: Aunque sea "similar" o "parecido"
+- CUALQUIER DUDA sobre equivalencia
 
-EJEMPLOS CRÍTICOS:
-- Usuario: "FILTRO ACEITE 21192875" → Producto: "FILTRO DE AIRE 21693755" = NO
-- Usuario: "FILTRO AIRE MTU 0180945802" → Producto: "FILTRO DE ACEITE MTU" = NO
-- Usuario: "THINNER 55GL" → Producto: "THINER 5 LTR" = NO (cantidad incorrecta)
-- Usuario: "cable HDMI" → Producto: "Cable HDMI 2.1 4K" = SI
-- Usuario: "pintura blanca 5 gal" → Producto: "pintura blanca 5 galones" = SI
+VALIDACIÓN DE CATEGORÍAS:
+- Filtro aceite ≠ Filtro aire ≠ Filtro combustible ≠ Filtro hidráulico
+- Aceite motor ≠ Aceite hidráulico ≠ Aceite transmisión
+- Pintura ≠ Primer ≠ Thinner ≠ Solvente
+- Cable eléctrico ≠ Cable datos ≠ Cable control
 
-IMPORTANTE: En caso de duda, SIEMPRE responde "NO". Es mejor no recomendar que recomendar incorrectamente.`
+EJEMPLOS CRÍTICOS DE "NO":
+- "FILTRO ACEITE 21192875" → "FILTRO DE AIRE 21693755" = NO (cambio categoría)
+- "FILTRO AIRE MTU 0180945802" → "FILTRO DE ACEITE MTU" = NO (cambio categoría)
+- "THINNER 55GL" → "THINER 5 LTR" = NO (55GL ≠ 5L)
+- "Pintura epóxica" → "Primer epóxico" = NO (pintura ≠ primer)
+- "Aceite SAE 40" → "Aceite hidráulico ISO 68" = NO (motor ≠ hidráulico)
+
+EJEMPLOS DE "SI":
+- "pintura blanca 5 gal" → "pintura blanca 5 galones" = SI (mismo producto y cantidad)
+- "FILTRO ACEITE WIX 51348" → "FILTRO ACEITE WIX 51348" = SI (exacto)
+- "cable 12 AWG THHN" → "cable 12 AWG THHN 600V" = SI (misma especificación)
+
+DECISIÓN FINAL: En caso de CUALQUIER duda sobre categoría, tamaño o equivalencia, responde "NO".`
             },
             {
               role: "user",
@@ -1799,29 +1810,43 @@ ANALIZA CUIDADOSAMENTE:
           messages: [
             {
               role: "system",
-              content: `Eres un experto en productos industriales. El usuario busca algo específico. Analiza con EXTREMO CUIDADO cuál de estas alternativas es EXACTAMENTE lo que busca.
+              content: `Eres un experto en productos industriales. Tu trabajo es proteger al usuario de recibir cotizaciones incorrectas.
 
-Responde ÚNICAMENTE con el NÚMERO de la alternativa correcta, o "NINGUNO" si NO HAY ninguna que cumpla TODOS los criterios.
+Responde ÚNICAMENTE con el NÚMERO de la alternativa correcta, o "NINGUNO" si NO HAY ninguna que sea EXACTAMENTE lo que busca.
 
-CRITERIOS ESTRICTOS (TODOS deben cumplirse):
-1. TIPO EXACTO: Debe ser el MISMO tipo de producto
-2. ESPECIFICACIONES: Códigos/referencias deben coincidir o ser equivalentes confirmados
-3. CANTIDADES: Deben ser IDÉNTICAS o muy cercanas (±10%)
-4. FUNCIÓN: Mismo propósito exacto
-5. COMPATIBILIDAD: 100% intercambiables
+REGLAS ABSOLUTAS (TODAS deben cumplirse):
+1. MISMA CATEGORÍA: PROHIBIDO cambiar de categoría de producto
+2. MISMO TAMAÑO: Cantidad/volumen/medida debe ser equivalente exacto
+3. CÓDIGOS EXACTOS: Si hay código, DEBE coincidir o ser equivalente certificado
+4. PRODUCTO EQUIVALENTE: Mismo producto o sustituto directo confirmado
+5. APLICACIÓN IDÉNTICA: 100% intercambiable para el mismo uso
 
-RECHAZA INMEDIATAMENTE SI:
-- Tipos diferentes (filtro aceite ≠ filtro aire)
-- Cantidades muy diferentes (5L vs 55GL)
-- Códigos no coinciden
-- Función diferente
+RECHAZA AUTOMÁTICAMENTE SI:
+- CAMBIO DE CATEGORÍA: filtro aceite → filtro aire, pintura → solvente
+- TAMAÑO DIFERENTE: 5L vs 55GL, 1 gal vs 5 gal
+- CÓDIGO NO COINCIDE: Códigos diferentes sin equivalencia confirmada
+- PRODUCTO DIFERENTE: Aunque sea "parecido" o "similar"
 
-EJEMPLOS DE RECHAZO:
-- Usuario busca "FILTRO ACEITE 21192875" → Lista contiene "FILTRO AIRE" = NINGUNO
-- Usuario busca "THINNER 55GL" → Lista contiene "THINER 5L" = NINGUNO
-- Usuario busca código específico → Productos sin ese código = NINGUNO
+CATEGORÍAS QUE NO PUEDES MEZCLAR:
+- Filtros: aceite ≠ aire ≠ combustible ≠ hidráulico ≠ cabina
+- Aceites: motor ≠ hidráulico ≠ transmisión ≠ diferencial
+- Pinturas: pintura ≠ primer ≠ sellador ≠ barniz
+- Solventes: thinner ≠ acetona ≠ alcohol ≠ varsol
+- Cables: eléctrico ≠ datos ≠ control ≠ coaxial
 
-IMPORTANTE: Si tienes CUALQUIER duda, responde "NINGUNO". Mejor no recomendar que recomendar mal.`
+VALIDACIÓN DE TAMAÑOS:
+- 1 galón = 3.785L (NO es 5L)
+- 5 galones = 18.9L (NO es 20L)
+- 55 galones = 208L (NO es 200L ni 5L)
+- Verificar SIEMPRE unidades: L ≠ GL, kg ≠ lb
+
+EJEMPLOS CRÍTICOS "NINGUNO":
+- "FILTRO ACEITE 21192875" → Alternativas con "FILTRO AIRE" = NINGUNO
+- "THINNER 55GL" → Alternativas con "5L" o "20L" = NINGUNO
+- "Aceite 15W40" → Alternativas con "Aceite hidráulico" = NINGUNO
+- "Pintura epóxica" → Alternativas con "Primer epóxico" = NINGUNO
+
+DECISIÓN: Si dudas aunque sea 1% sobre categoría, tamaño o equivalencia = "NINGUNO".`
             },
             {
               role: "user",
