@@ -254,10 +254,6 @@ export class OpenAIRateLimiterService {
         async () => {
           this.logger.debug(`Executing embedding operation: ${operationId || 'unnamed'}`);
           
-          // NUEVO: Delay fijo de 1 segundo antes de CUALQUIER embedding
-          this.logger.debug(`Aplicando delay fijo de 1 segundo antes del embedding`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
           // NUEVO: Aplicar delay adaptativo ANTES de hacer la request
           const delayApplied = await this.enforceAdaptiveDelay(true);
           
