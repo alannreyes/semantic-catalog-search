@@ -44,20 +44,20 @@ export class OpenAIRateLimiterService {
     // Configuración optimizada para máxima velocidad
     const embeddingConfig = this.isDevelopment ? {
       // Desarrollo: conservador para testing
-      minTime: 100, // 10 requests/segundo = 600 RPM
-      maxConcurrent: 5,
-      reservoir: 50, // 50 requests iniciales
-      reservoirRefreshAmount: 10, // 10 requests cada
-      reservoirRefreshInterval: 1000, // 1 segundo (10 RPS = 600 RPM)
-      highWater: 20,
+      minTime: 1000, // 1 request/segundo = 60 RPM
+      maxConcurrent: 1,
+      reservoir: 10, // 10 requests iniciales
+      reservoirRefreshAmount: 1, // 1 request cada
+      reservoirRefreshInterval: 1000, // 1 segundo (1 RPS = 60 RPM)
+      highWater: 5,
     } : {
-      // Producción: ULTRA CONSERVADOR para evitar 429
-      minTime: 200, // 5 requests/segundo = 300 RPM  
-      maxConcurrent: 3,
-      reservoir: 30, // 30 requests iniciales
-      reservoirRefreshAmount: 5, // 5 requests cada
-      reservoirRefreshInterval: 1000, // 1 segundo (5 RPS = 300 RPM)
-      highWater: 10,
+      // Producción: EXTREMADAMENTE CONSERVADOR para evitar 429
+      minTime: 1000, // 1 request/segundo = 60 RPM  
+      maxConcurrent: 1,
+      reservoir: 5, // 5 requests iniciales
+      reservoirRefreshAmount: 1, // 1 request cada
+      reservoirRefreshInterval: 1000, // 1 segundo (1 RPS = 60 RPM)
+      highWater: 3,
     };
 
     this.embeddingLimiter = new Bottleneck({
@@ -78,20 +78,20 @@ export class OpenAIRateLimiterService {
     // Configuración ULTRA CONSERVADORA para evitar rate limits
     const chatConfig = this.isDevelopment ? {
       // Desarrollo: conservador
-      minTime: 200, // 5 requests/segundo = 300 RPM
-      maxConcurrent: 3,
-      reservoir: 30,
-      reservoirRefreshAmount: 5,
-      reservoirRefreshInterval: 1000, // 5 requests por segundo
-      highWater: 10,
+      minTime: 2000, // 0.5 requests/segundo = 30 RPM
+      maxConcurrent: 1,
+      reservoir: 5,
+      reservoirRefreshAmount: 1,
+      reservoirRefreshInterval: 2000, // 0.5 requests por segundo
+      highWater: 3,
     } : {
-      // Producción: ULTRA CONSERVADOR para evitar 429
-      minTime: 400, // 2.5 requests/segundo = 150 RPM
-      maxConcurrent: 2,
-      reservoir: 15,
-      reservoirRefreshAmount: 2,
-      reservoirRefreshInterval: 1000, // 2 requests por segundo  
-      highWater: 5,
+      // Producción: EXTREMADAMENTE CONSERVADOR para evitar 429
+      minTime: 2000, // 0.5 requests/segundo = 30 RPM
+      maxConcurrent: 1,
+      reservoir: 3,
+      reservoirRefreshAmount: 1,
+      reservoirRefreshInterval: 2000, // 1 request cada 2 segundos  
+      highWater: 2,
     };
 
     this.chatLimiter = new Bottleneck({
@@ -265,8 +265,8 @@ export class OpenAIRateLimiterService {
                 lastError = error;
                 const rateLimitInfo = this.extractRateLimitInfo(error);
                 
-                // CAMBIO: Esperar 10 segundos fijos cuando hay 429
-                const waitTime = 10000; // 10 segundos
+                // CAMBIO: Esperar 30 segundos fijos cuando hay 429
+                const waitTime = 30000; // 30 segundos
                 this.logger.warn(
                   `⚠️ Rate limit 429 detectado. Pausando ${waitTime/1000} segundos antes de reintentar...`,
                   { 
@@ -277,11 +277,11 @@ export class OpenAIRateLimiterService {
                   }
                 );
                 
-                // Esperar 10 segundos
+                // Esperar 30 segundos
                 await new Promise(resolve => setTimeout(resolve, waitTime));
                 
                 // Continuar con el siguiente intento
-                this.logger.log(`Reintentando después de pausa de 10 segundos...`);
+                this.logger.log(`Reintentando después de pausa de 30 segundos...`);
                 continue;
               }
               // Si no es 429, lanzar el error inmediatamente
@@ -356,8 +356,8 @@ export class OpenAIRateLimiterService {
                 lastError = error;
                 const rateLimitInfo = this.extractRateLimitInfo(error);
                 
-                // CAMBIO: Esperar 10 segundos fijos cuando hay 429
-                const waitTime = 10000; // 10 segundos
+                // CAMBIO: Esperar 30 segundos fijos cuando hay 429
+                const waitTime = 30000; // 30 segundos
                 this.logger.warn(
                   `⚠️ Chat rate limit 429 detectado. Pausando ${waitTime/1000} segundos antes de reintentar...`,
                   { 
@@ -372,7 +372,7 @@ export class OpenAIRateLimiterService {
                 await new Promise(resolve => setTimeout(resolve, waitTime));
                 
                 // Continuar con el siguiente intento
-                this.logger.log(`Reintentando chat después de pausa de 10 segundos...`);
+                this.logger.log(`Reintentando chat después de pausa de 30 segundos...`);
                 continue;
               }
               // Si no es 429, lanzar el error inmediatamente
