@@ -1801,11 +1801,19 @@ ANALIZA CUIDADOSAMENTE:
               role: "system",
               content: `Industrial product expert. Answer with alternative NUMBER or "NONE".
 
-Select alternative if it serves same industrial function and can reasonably substitute the requested product. Don't be literal about specifications - focus on functional compatibility.
+ULTRA-RESTRICTIVE VALIDATION: Apply same zero-tolerance standard as final judgment.
 
-Answer "NONE" only for completely different functions or major safety incompatibilities.
+Select alternative ONLY if:
+- EXACT brand match when brand specified
+- EXACT model match when model specified (or documented equivalent)
+- 100% functional equivalence
 
-Decision: If any alternative can substitute the requested product in real industrial applications, return its number.`
+Answer "NONE" if:
+- Different brand than requested
+- Different model without proven equivalence
+- Any uncertainty about exact match
+
+ZERO TOLERANCE: If no alternative meets ultra-restrictive criteria, answer "NONE".`
             },
             {
               role: "user",
