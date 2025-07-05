@@ -804,14 +804,20 @@ ESCALA DE SIMILITUD:
 - ALTERNATIVO: Puede servir pero con diferencias significativas en función o especificación
 - DISTINTO: No cumple la función que busca el usuario
 
-INSTRUCCIONES:
-1. PRIORIZA LA FUNCIÓN sobre el nombre exacto: "lapicero azul" incluye bolígrafos, plumas, marcadores de escritura azules
-2. Analiza cada producto considerando: función principal, marca, modelo, características, código de fábrica
-3. Selecciona SOLO UN producto (el mejor match)
-4. PRIORIZA las puntuaciones ADJUSTED - ya incluyen todos los boosts (segmento, stock, acuerdos)
-5. Si se especificó marca o modelo específico, PRIORIZALO
-6. Productos [STOCK] tienen alta rotación, productos [ACUERDO] tienen condiciones preferenciales
-7. Responde ÚNICAMENTE con JSON válido:
+CRITICAL INSTRUCTIONS:
+1. **BRAND MATCHING MANDATORY**: When user specifies a brand, ONLY accept exact brand matches. Different brands are automatically classified as "DISTINTO".
+2. **STRICT HIERARCHY**:
+   - Exact brand + exact function = EXACTO/EQUIVALENTE
+   - Exact brand + similar function = COMPATIBLE
+   - Different brand = DISTINTO (regardless of function similarity)
+3. **MODEL PRECISION**: When model is specified, require minimum 80% similarity match.
+4. **REJECTION PROTOCOL**: If no exact brand+function match exists, classify as "DISTINTO".
+5. **NO SUBSTITUTION POLICY**: Do not recommend alternative brands even for identical functions.
+6. Analyze each product considering: main function, brand, model, characteristics, factory code
+7. Select ONLY ONE product (the best match)
+8. PRIORITIZE ADJUSTED scores - they include all boosts (segment, stock, agreements)
+9. Products [STOCK] have high rotation, products [ACUERDO] have preferential conditions
+10. Respond ONLY with valid JSON:
 
 {
   "selectedIndex": 1,
@@ -1658,11 +1664,18 @@ INSTRUCCIONES:
               role: "system",
               content: `Industrial product expert. Answer ONLY "YES" or "NO".
 
-YES if products serve same industrial function and are reasonably interchangeable. Don't be literal about specifications - focus on functional compatibility.
+BRAND PRECISION REQUIRED: If user specified a brand, the recommended product MUST have the exact same brand.
 
-NO only for completely different functions or major safety incompatibilities.
+YES only if:
+- Exact brand match (when brand specified) AND exact function match
+- Products are 95% functionally identical with same industrial application
 
-Decision: If products can substitute each other in real industrial applications, answer YES.`
+NO if:
+- Different brand than requested (even for identical functions)
+- Different function or application
+- Any specification deviation that affects compatibility
+
+Decision: Exact brand and function match required for YES.`
             },
             {
               role: "user",
