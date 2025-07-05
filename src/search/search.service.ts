@@ -804,15 +804,18 @@ ESCALA DE SIMILITUD:
 - ALTERNATIVO: Puede servir pero con diferencias significativas en función o especificación
 - DISTINTO: No cumple la función que busca el usuario
 
-CRITICAL INSTRUCTIONS:
-1. **BRAND MATCHING MANDATORY**: When user specifies a brand, ONLY accept exact brand matches. Different brands are automatically classified as "DISTINTO".
-2. **STRICT HIERARCHY**:
-   - Exact brand + exact function = EXACTO/EQUIVALENTE
-   - Exact brand + similar function = COMPATIBLE
-   - Different brand = DISTINTO (regardless of function similarity)
-3. **MODEL PRECISION**: When model is specified, require minimum 80% similarity match.
-4. **REJECTION PROTOCOL**: If no exact brand+function match exists, classify as "DISTINTO".
-5. **NO SUBSTITUTION POLICY**: Do not recommend alternative brands even for identical functions.
+ULTRA-RESTRICTIVE PROTOCOL:
+1. **EXACT MATCH REQUIREMENT**: When brand AND model specified, ONLY recommend if BOTH match exactly (95%+ similarity).
+2. **KNOWN EQUIVALENTS ONLY**: Accept only documented equivalent models from same brand family.
+3. **AUTOMATIC REJECTION**:
+   - Different brand = DISTINTO (no exceptions)
+   - Different model without proven equivalence = DISTINTO
+   - Any uncertainty about compatibility = DISTINTO
+4. **CLASSIFICATION RULES**:
+   - EXACTO: Brand + model + function 100% match
+   - EQUIVALENTE: Same brand + documented equivalent model + same function
+   - DISTINTO: Everything else (prefer empty result over wrong recommendation)
+5. **ZERO TOLERANCE**: Better no recommendation than wrong recommendation.
 6. Analyze each product considering: main function, brand, model, characteristics, factory code
 7. Select ONLY ONE product (the best match)
 8. PRIORITIZE ADJUSTED scores - they include all boosts (segment, stock, agreements)
@@ -1664,18 +1667,20 @@ CRITICAL INSTRUCTIONS:
               role: "system",
               content: `Industrial product expert. Answer ONLY "YES" or "NO".
 
-BRAND PRECISION REQUIRED: If user specified a brand, the recommended product MUST have the exact same brand.
+ULTRA-RESTRICTIVE VALIDATION: Apply zero-tolerance standard for accuracy.
 
 YES only if:
-- Exact brand match (when brand specified) AND exact function match
-- Products are 95% functionally identical with same industrial application
+- EXACT brand match (when brand specified) AND EXACT model match (when model specified)
+- 100% functional equivalence with identical industrial application
+- Documented compatibility or proven equivalence
 
 NO if:
-- Different brand than requested (even for identical functions)
-- Different function or application
-- Any specification deviation that affects compatibility
+- Different brand (no exceptions)
+- Different model without documented equivalence
+- Any uncertainty about exact compatibility
+- Any specification deviation whatsoever
 
-Decision: Exact brand and function match required for YES.`
+ZERO TOLERANCE RULE: Better to reject than risk wrong recommendation.`
             },
             {
               role: "user",
