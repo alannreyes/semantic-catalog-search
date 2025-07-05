@@ -804,18 +804,19 @@ ESCALA DE SIMILITUD:
 - ALTERNATIVO: Puede servir pero con diferencias significativas en función o especificación
 - DISTINTO: No cumple la función que busca el usuario
 
-ULTRA-RESTRICTIVE PROTOCOL:
-1. **EXACT MATCH REQUIREMENT**: When brand AND model specified, ONLY recommend if BOTH match exactly (95%+ similarity).
-2. **KNOWN EQUIVALENTS ONLY**: Accept only documented equivalent models from same brand family.
-3. **AUTOMATIC REJECTION**:
-   - Different brand = DISTINTO (no exceptions)
-   - Different model without proven equivalence = DISTINTO
-   - Any uncertainty about compatibility = DISTINTO
-4. **CLASSIFICATION RULES**:
-   - EXACTO: Brand + model + function 100% match
-   - EQUIVALENTE: Same brand + documented equivalent model + same function
-   - DISTINTO: Everything else (prefer empty result over wrong recommendation)
-5. **ZERO TOLERANCE**: Better no recommendation than wrong recommendation.
+WAREHOUSE MATCHING RULES:
+1. **BRAND**: Must match when specified (no tolerance)
+2. **PRODUCT TEST**: Would warehouse staff consider these the same SKU?
+   - Same physical product? → ACCEPT
+   - Same specifications? → ACCEPT
+   - Minor text variations? → ACCEPT
+   - Different item entirely? → REJECT
+3. **IGNORE DIFFERENCES IN**:
+   - Word sequence (PVC 3" = 3" PVC)
+   - Typos that don't change meaning
+   - Extra descriptive words
+   - Format notation (1.1/2" = 1 1/2")
+4. **CORE PRINCIPLE**: Match products, not strings
 6. Analyze each product considering: main function, brand, model, characteristics, factory code
 7. Select ONLY ONE product (the best match)
 8. PRIORITIZE ADJUSTED scores - they include all boosts (segment, stock, agreements)
@@ -1709,20 +1710,21 @@ ULTRA-RESTRICTIVE PROTOCOL:
               role: "system",
               content: `Industrial product expert. Answer ONLY "YES" or "NO".
 
-ULTRA-RESTRICTIVE VALIDATION: Apply zero-tolerance standard for accuracy.
+WAREHOUSE MATCHING VALIDATION: Use practical warehouse logic.
 
-YES only if:
-- EXACT brand match (when brand specified) AND EXACT model match (when model specified)
-- 100% functional equivalence with identical industrial application
-- Documented compatibility or proven equivalence
+YES if:
+- EXACT brand match (when brand specified)
+- Same physical product with same specifications
+- Minor text variations acceptable (word order, typos, extra descriptors)
+- Warehouse staff would consider these the same SKU
 
 NO if:
-- Different brand (no exceptions)
-- Different model without documented equivalence
-- Any uncertainty about exact compatibility
-- Any specification deviation whatsoever
+- Different brand (when brand specified)
+- Different product type or function
+- Different key specifications (size, material, capacity)
+- Completely different items
 
-ZERO TOLERANCE RULE: Better to reject than risk wrong recommendation.`
+PRINCIPLE: Match like warehouse professionals - focus on product identity, not text strings.`
             },
             {
               role: "user",
@@ -1803,19 +1805,20 @@ ANALIZA CUIDADOSAMENTE:
               role: "system",
               content: `Industrial product expert. Answer with alternative NUMBER or "NONE".
 
-ULTRA-RESTRICTIVE VALIDATION: Apply same zero-tolerance standard as final judgment.
+WAREHOUSE MATCHING VALIDATION: Apply practical warehouse logic.
 
-Select alternative ONLY if:
+Select alternative if:
 - EXACT brand match when brand specified
-- EXACT model match when model specified (or documented equivalent)
-- 100% functional equivalence
+- Same physical product with same specifications
+- Minor text variations acceptable (word order, typos, extra descriptors)
+- Warehouse staff would consider these the same SKU
 
 Answer "NONE" if:
 - Different brand than requested
-- Different model without proven equivalence
-- Any uncertainty about exact match
+- Different product type or function
+- Different key specifications (size, material, capacity)
 
-ZERO TOLERANCE: If no alternative meets ultra-restrictive criteria, answer "NONE".`
+PRINCIPLE: Match like warehouse professionals - focus on product identity, not text strings.`
             },
             {
               role: "user",
