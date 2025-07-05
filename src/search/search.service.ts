@@ -1260,19 +1260,10 @@ ULTRA-RESTRICTIVE PROTOCOL:
       let selectedProduct;
       let selectionMethod;
 
+      // --- SELECCIÓN INICIAL POR BOOST ---
       if (tiedProducts.length === 1) {
-        // --- SIN EMPATE: USAR GANADOR DIRECTO ---
         selectedProduct = tiedProducts[0];
         selectionMethod = 'boost_ranking';
-        
-        this.logger.log(
-          `Ganador único por boost: ${selectedProduct.codigo}`,
-          SearchService.name,
-          { 
-            adjusted_similarity: selectedProduct.adjustedSimilarity,
-            boost_percent: selectedProduct.boostInfo.total_boost
-          }
-        );
       } else {
         // --- HAY EMPATE: APLICAR DESEMPATE AUTOMÁTICO ---
         this.logger.log(
@@ -1304,60 +1295,109 @@ ULTRA-RESTRICTIVE PROTOCOL:
           return b.originalSimilarity - a.originalSimilarity;
         });
 
-        // Verificar si el desempate automático resolvió el empate
-        const afterTiebreak = tiedProducts.filter(p => 
-          p.articulo_stock === tiedProducts[0].articulo_stock &&
-          p.lista_costos === tiedProducts[0].lista_costos &&
-          p.segment === tiedProducts[0].segment
-        );
+        selectedProduct = tiedProducts[0];
+        selectionMethod = 'automatic_tiebreaker';
+      }
 
-        if (afterTiebreak.length === 1) {
-          // --- DESEMPATE AUTOMÁTICO EXITOSO ---
-          selectedProduct = tiedProducts[0];
-          selectionMethod = 'automatic_tiebreaker';
-          
+      // --- JUICIO FINAL CON GPT: SIEMPRE SE EJECUTA ---
+      this.logger.log(
+        `Ejecutando JUICIO FINAL con GPT-4o (ULTRA-RESTRICTIVE PROTOCOL)`,
+        SearchService.name,
+        { 
+          pre_selected: selectedProduct.codigo,
+          total_candidates: productsWithBoost.length 
+        }
+      );
+
+      // Enviar TOP 10 productos a GPT para juicio final
+      const candidatesForGPT = productsWithBoost.slice(0, 10);
+      
+      const gptResult = await this.selectBestProductWithGPT(
+        originalQuery,
+        candidatesForGPT.map((p, idx) => ({
+          codigo: p.codigo,
+          descripcion: p.text,
+          marca: p.marca,
+          segment: p.segment,
+          codigo_fabrica: p.codigo_fabrica || '',
+          articulo_stock: p.articulo_stock,
+          lista_costos: p.lista_costos,
+          similarity: p.originalSimilarity,
+          adjustedSimilarity: p.adjustedSimilarity,
+          boost_total: p.boostInfo.total_boost,
+          index: idx + 1
+        })),
+        normalizedQuery,
+        segment,
+        candidatesForGPT.length
+      );
+
+      // Procesar resultado de GPT JUICIO FINAL
+      if (gptResult.query_info.similitud === 'DISTINTO') {
+        // GPT rechazó todos los productos según protocolo ultra-restrictivo
+        this.logger.warn(
+          `GPT JUICIO FINAL: Ningún producto cumple criterios ultra-restrictivos`,
+          SearchService.name,
+          { original_query: originalQuery }
+        );
+        
+        // Retornar resultado vacío según protocolo
+        return {
+          query_info: {
+            similitud: "DISTINTO",
+            total_candidates: result.rows.length,
+            search_time_ms: Math.round(embeddingTime + vectorSearchTime),
+            selection_method: 'gpt_ultra_restrictive_rejection'
+          },
+          selected_product: {
+            codigo: null,
+            descripcion: null,
+            marca: null,
+            segment: 'standard',
+            has_stock: false,
+            has_cost_agreement: false,
+            boost_total_percent: 0,
+            boost_reasons: []
+          },
+          alternatives: [],
+          boost_summary: {
+            total_products_evaluated: result.rows.length,
+            products_with_boosts: productsWithBoost.filter(p => p.boostInfo.total_boost > 0).length,
+            average_boost_percent: 0,
+            max_boost_percent: 0
+          }
+        };
+      }
+
+      // GPT seleccionó un producto válido
+      const gptSelectedProduct = candidatesForGPT.find(p => p.codigo === gptResult.selected_product.codigo);
+      
+      if (gptSelectedProduct) {
+        if (gptSelectedProduct.codigo !== selectedProduct.codigo) {
           this.logger.log(
-            `Desempate automático exitoso: ${selectedProduct.codigo}`,
+            `GPT JUICIO FINAL cambió selección de ${selectedProduct.codigo} a ${gptSelectedProduct.codigo}`,
             SearchService.name,
-            {
-              reason: `Stock:${selectedProduct.articulo_stock}, Acuerdo:${selectedProduct.lista_costos}, Segmento:${selectedProduct.segment}`
+            { 
+              gpt_similarity: gptResult.query_info.similitud,
+              reason: 'GPT override based on ultra-restrictive protocol'
             }
           );
         } else {
-          // --- EMPATE PERSISTE: USAR GPT PARA DECIDIR ---
           this.logger.log(
-            `Empate persiste después de desempate automático, usando GPT`,
-            SearchService.name,
-            { remaining_tied: afterTiebreak.length }
-          );
-
-          const gptResult = await this.selectBestProductWithGPT(
-            originalQuery,
-            afterTiebreak.map(p => ({
-              codigo: p.codigo,
-              descripcion: p.text,
-              marca: p.marca,
-              segment: p.segment,
-              codigo_fabrica: '',
-              articulo_stock: p.articulo_stock,
-              lista_costos: p.lista_costos,
-              similarity: p.originalSimilarity
-            })),
-            normalizedQuery,
-            segment,
-            afterTiebreak.length
-          );
-
-          // Encontrar el producto seleccionado por GPT en nuestra lista
-          selectedProduct = tiedProducts.find(p => p.codigo === gptResult.selected_product.codigo) || tiedProducts[0];
-          selectionMethod = 'gpt_tiebreaker';
-          
-          this.logger.log(
-            `GPT resolvió empate final: ${selectedProduct.codigo}`,
+            `GPT JUICIO FINAL confirmó selección: ${selectedProduct.codigo}`,
             SearchService.name,
             { gpt_similarity: gptResult.query_info.similitud }
           );
         }
+        
+        selectedProduct = gptSelectedProduct;
+        selectionMethod = 'gpt_final_judgment';
+      } else {
+        // Fallback si GPT responde con índice inválido
+        this.logger.warn(
+          `GPT JUICIO FINAL dio índice inválido, usando selección por boost`,
+          SearchService.name
+        );
       }
 
       // --- CONSTRUIR RESPUESTA FINAL ---
