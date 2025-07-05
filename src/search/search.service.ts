@@ -1319,7 +1319,7 @@ ULTRA-RESTRICTIVE PROTOCOL:
           descripcion: p.text,
           marca: p.marca,
           segment: p.segment,
-          codigo_fabrica: p.codigo_fabrica || '',
+          codigo_fabrica: '',  // No disponible en este contexto
           articulo_stock: p.articulo_stock,
           lista_costos: p.lista_costos,
           similarity: p.originalSimilarity,
@@ -1341,12 +1341,14 @@ ULTRA-RESTRICTIVE PROTOCOL:
           { original_query: originalQuery }
         );
         
+        const totalStepTime = Number(process.hrtime.bigint() - stepStartTime) / 1_000_000;
+        
         // Retornar resultado vacío según protocolo
         return {
           query_info: {
             similitud: "DISTINTO",
-            total_candidates: result.rows.length,
-            search_time_ms: Math.round(embeddingTime + vectorSearchTime),
+            total_candidates: products.length,  // Usar products.length en lugar de result.rows.length
+            search_time_ms: Math.round(totalStepTime),  // Usar tiempo del paso actual
             selection_method: 'gpt_ultra_restrictive_rejection'
           },
           selected_product: {
@@ -1361,7 +1363,7 @@ ULTRA-RESTRICTIVE PROTOCOL:
           },
           alternatives: [],
           boost_summary: {
-            total_products_evaluated: result.rows.length,
+            total_products_evaluated: products.length,  // Usar products.length
             products_with_boosts: productsWithBoost.filter(p => p.boostInfo.total_boost > 0).length,
             average_boost_percent: 0,
             max_boost_percent: 0
