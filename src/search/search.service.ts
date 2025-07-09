@@ -13,6 +13,7 @@ import { Pool, PoolClient } from 'pg';
 import OpenAI from 'openai';
 import { AcronimosService } from '../acronimos/acronimos.service';
 import { OpenAIRateLimiterService } from '../openai-rate-limiter.service';
+import { IsMatchDto } from './dto/ismatch.dto';
 
 @Injectable()
 export class SearchService implements OnModuleDestroy {
@@ -1885,6 +1886,71 @@ Responde solo el número o "NINGUNO".`
       nodeEnv: process.env.NODE_ENV,
       openaiKeyPrefix: this.configService.get<string>('OPENAI_API_KEY')?.substring(0, 10) + '...'
     };
+  }
+
+  // Determina si dos productos son el mismo usando GPT-4o con criterios de almacén
+  async isMatch(dto: IsMatchDto): Promise<number> {
+    try {
+      const systemPrompt = "Eres un experto en análisis de productos industriales. SIEMPRE respondes con JSON válido y nada más. Tus explicaciones deben ser en español.";
+
+      const userPrompt = `Analiza si estos dos productos son el mismo producto.
+
+PRODUCTO 1: "${dto.producto1}"
+PRODUCTO 2: "${dto.producto2}"
+
+WAREHOUSE MATCHING RULES:
+1. **BRAND**: Must match when specified (no tolerance)
+2. **PRODUCT TEST**: Would warehouse staff consider these the same SKU?
+   - Same physical product? → ACCEPT
+   - Same specifications? → ACCEPT
+   - Minor text variations? → ACCEPT
+   - Different item entirely? → REJECT
+3. **IGNORE DIFFERENCES IN**:
+   - Word sequence (PVC 3" = 3" PVC)
+   - Typos that don't change meaning
+   - Extra descriptive words
+   - Format notation (1.1/2" = 1 1/2")
+4. **CORE PRINCIPLE**: Match products, not strings
+
+Analyze each product considering: main function, brand, model, characteristics, factory code
+
+Respond ONLY with valid JSON:
+{
+  "match": 1
+}
+
+INSTRUCCIONES:
+- Si son el mismo producto físico → match = 1
+- Si son productos diferentes → match = 0`;
+
+      const gptResponse = await this.rateLimiter.executeChat(
+        () => this.openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          temperature: 0.1,
+          max_tokens: 50,
+          response_format: { type: "json_object" }
+        }),
+        `ismatch-${Date.now()}`
+      );
+
+      const response = JSON.parse(gptResponse.choices[0]?.message?.content?.trim());
+      const result = response.match === 1 ? 1 : 0;
+      
+      this.logger.log(
+        `IsMatch: "${dto.producto1}" vs "${dto.producto2}" = ${result}`,
+        SearchService.name
+      );
+      
+      return result;
+      
+    } catch (error) {
+      this.logger.error('Error in isMatch:', error);
+      return 0;
+    }
   }
 
   async onModuleDestroy() {
