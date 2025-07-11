@@ -1899,7 +1899,7 @@ PRODUCTO 1: "${dto.producto1}"
 PRODUCTO 2: "${dto.producto2}"
 
 WAREHOUSE MATCHING RULES:
-1. **BRAND**: Must match when BOTH products specify brand (if only one mentions brand, ignore difference)
+1. **BRAND**: Must match when specified (no tolerance)
 2. **PRODUCT TEST**: Would warehouse staff consider these the same SKU?
    - Same physical product? → ACCEPT
    - Same specifications? → ACCEPT
@@ -1910,24 +1910,7 @@ WAREHOUSE MATCHING RULES:
    - Typos that don't change meaning
    - Extra descriptive words
    - Format notation (1.1/2" = 1 1/2")
-   - Additional technical specifications in producto2
-   - Brand/model codes when producto1 doesn't specify them
 4. **CORE PRINCIPLE**: Match products, not strings
-5. **CUSTOMER vs CATALOG CONTEXT**: 
-   - producto1 is often a generic customer description
-   - producto2 is the complete catalog description
-   - Accept when producto1 is a subset of producto2's functionality
-6. **COMMON SYNONYMS** (Spanish context):
-   - trapo = paño (rag/cloth)
-   - chapa = cerradura (lock)
-   - pint. = pintura (paint)
-   - fe = fierro (iron)
-   - spray paint order: "PAINT COLOR (SPRAY)" = "SPRAY PAINT COLOR"
-   - fosforos = fosforo (matches singular/plural)
-7. **MEASUREMENT EQUIVALENCE**:
-   - N°8 = 8" (size notation)
-   - Minor differences OK: 9.2M ≈ 9.15M
-   - When producto1 omits volume/size, accept if core product matches
 
 Analyze each product considering: main function, brand, model, characteristics, factory code
 
