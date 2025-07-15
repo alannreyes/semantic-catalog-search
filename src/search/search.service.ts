@@ -1958,10 +1958,33 @@ INSTRUCCIONES:
   async simil(dto: SimilDto): Promise<number> {
     try {
       // Obtener embeddings para ambos textos
-      const [embedding1, embedding2] = await Promise.all([
-        this.getEmbedding(dto.texto1),
-        this.getEmbedding(dto.texto2)
+      const embeddingParams: any = { 
+        model: this.embeddingModel
+      };
+
+      if (this.embeddingModel.includes('text-embedding-3')) {
+        embeddingParams.dimensions = this.vectorDimensions;
+      }
+
+      const [embeddingResponse1, embeddingResponse2] = await Promise.all([
+        this.rateLimiter.executeEmbedding(
+          () => this.openai.embeddings.create({
+            ...embeddingParams,
+            input: dto.texto1
+          }),
+          `simil-embedding1-${Date.now()}`
+        ),
+        this.rateLimiter.executeEmbedding(
+          () => this.openai.embeddings.create({
+            ...embeddingParams,
+            input: dto.texto2
+          }),
+          `simil-embedding2-${Date.now()}`
+        )
       ]);
+
+      const embedding1 = embeddingResponse1.data[0].embedding;
+      const embedding2 = embeddingResponse2.data[0].embedding;
 
       // Calcular similitud coseno
       const dotProduct = embedding1.reduce((sum, val, i) => sum + val * embedding2[i], 0);
