@@ -14,6 +14,7 @@ import OpenAI from 'openai';
 import { AcronimosService } from '../acronimos/acronimos.service';
 import { OpenAIRateLimiterService } from '../openai-rate-limiter.service';
 import { IsMatchDto } from './dto/ismatch.dto';
+import { SimilDto } from './dto/simil.dto';
 
 @Injectable()
 export class SearchService implements OnModuleDestroy {
@@ -1950,6 +1951,38 @@ INSTRUCCIONES:
     } catch (error) {
       this.logger.error('Error in isMatch:', error);
       return 0;
+    }
+  }
+
+  // Método para calcular similitud coseno pura entre dos textos
+  async simil(dto: SimilDto): Promise<number> {
+    try {
+      // Obtener embeddings para ambos textos
+      const [embedding1, embedding2] = await Promise.all([
+        this.getEmbedding(dto.texto1),
+        this.getEmbedding(dto.texto2)
+      ]);
+
+      // Calcular similitud coseno
+      const dotProduct = embedding1.reduce((sum, val, i) => sum + val * embedding2[i], 0);
+      const magnitude1 = Math.sqrt(embedding1.reduce((sum, val) => sum + val * val, 0));
+      const magnitude2 = Math.sqrt(embedding2.reduce((sum, val) => sum + val * val, 0));
+      
+      const cosineSimilarity = dotProduct / (magnitude1 * magnitude2);
+      
+      // Redondear a 2 decimales
+      const result = Math.round(cosineSimilarity * 100) / 100;
+      
+      this.logger.log(
+        `Simil: "${dto.texto1}" vs "${dto.texto2}" = ${result}`,
+        SearchService.name
+      );
+      
+      return result;
+      
+    } catch (error) {
+      this.logger.error('Error in simil:', error);
+      throw new Error(`Error calculating similarity: ${error.message}`);
     }
   }
 
