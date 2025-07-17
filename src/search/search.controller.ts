@@ -3,6 +3,7 @@ import { SearchService } from './search.service';
 import { SearchDto } from './dto/search.dto';
 import { IsMatchDto } from './dto/ismatch.dto';
 import { SimilDto } from './dto/simil.dto';
+import { DimensionsDto } from './dto/dimensions.dto';
 
 @Controller()
 export class SearchController {
@@ -49,6 +50,17 @@ export class SearchController {
     const result = await this.searchService.simil(similDto);
     
     this.logger.log(`Simil result: ${result}`);
+    return result;
+  }
+
+  // Endpoint para calcular dimensiones y pesos de mercadería
+  @Post('dimensions')
+  async dimensions(@Body() dimensionsDto: DimensionsDto) {
+    this.logger.log(`Received dimensions request for ${dimensionsDto.items.length} items`);
+    
+    const result = await this.searchService.calculateDimensions(dimensionsDto);
+    
+    this.logger.log(`Dimensions calculated for ${result.items.length} items`);
     return result;
   }
 

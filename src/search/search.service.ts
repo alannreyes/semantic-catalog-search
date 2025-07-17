@@ -15,6 +15,7 @@ import { AcronimosService } from '../acronimos/acronimos.service';
 import { OpenAIRateLimiterService } from '../openai-rate-limiter.service';
 import { IsMatchDto } from './dto/ismatch.dto';
 import { SimilDto } from './dto/simil.dto';
+import { DimensionsDto } from './dto/dimensions.dto';
 
 @Injectable()
 export class SearchService implements OnModuleDestroy {
@@ -2006,6 +2007,83 @@ INSTRUCCIONES:
     } catch (error) {
       this.logger.error('Error in simil:', error);
       throw new Error(`Error calculating similarity: ${error.message}`);
+    }
+  }
+
+  // Método para calcular dimensiones y pesos de mercadería usando GPT-4o
+  async calculateDimensions(dto: DimensionsDto) {
+    try {
+      const systemPrompt = `You are an industrial tool measurement specialist. Process the following array of industrial items and calculate their physical dimensions.
+
+For each item, analyze the "descripcion" field to determine:
+- Weight in kg (peso_kg)
+- Height in cm (alto_cm)
+- Width in cm (ancho_cm)  
+- Length in cm (largo_cm)
+
+Rules:
+1. Base calculations on standard tool specifications from the description
+2. Consider manufacturer standards (STANLEY, TRUPER, BOSCH, MAKITA, DEWALT, etc.)
+3. For tool sets (JGO), calculate the complete set dimensions including case/box
+4. Units: PZA=piece, UND=unit, JGO=set, KG=kilogram, MT=meter, LT=liter
+5. Use realistic industrial tool dimensions
+6. Consider packaging when calculating dimensions
+
+Return ONLY valid JSON with:
+- "items": array with all input fields plus calculated dimensions
+- "totales": object with packaged totals considering standard industrial packaging
+
+Example response format:
+{
+  "items": [
+    {
+      "cod_articulo": "input_value",
+      "unico_articulo": "input_value", 
+      "descripcion": "input_value",
+      "unidad": "input_value",
+      "cantidad": "input_value",
+      "peso_kg": 0.72,
+      "alto_cm": 32,
+      "ancho_cm": 12,
+      "largo_cm": 5
+    }
+  ],
+  "totales": {
+    "peso_total_kg": 6.6,
+    "volumen_total_cm3": 45600,
+    "items_procesados": 2,
+    "bultos_estimados": 1
+  }
+}`;
+
+      const userPrompt = `Input data:\n${JSON.stringify(dto.items)}`;
+
+      const gptResponse = await this.rateLimiter.executeChat(
+        () => this.openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 4096,
+          response_format: { type: "json_object" }
+        }),
+        `dimensions-${Date.now()}`
+      );
+
+      const response = JSON.parse(gptResponse.choices[0]?.message?.content?.trim());
+      
+      this.logger.log(
+        `Dimensions calculated for ${dto.items.length} items`,
+        SearchService.name
+      );
+      
+      return response;
+      
+    } catch (error) {
+      this.logger.error('Error in calculateDimensions:', error);
+      throw new Error(`Error calculating dimensions: ${error.message}`);
     }
   }
 
