@@ -55,10 +55,10 @@ export class SearchController {
 
   // Endpoint para calcular dimensiones y pesos de mercadería
   @Post('dimensions')
-  async dimensions(@Body() dimensionsDto: DimensionsDto) {
-    this.logger.log(`Received dimensions request for ${dimensionsDto.items.length} items`);
+  async dimensions(@Body() items: any[]) {
+    this.logger.log(`Received dimensions request for ${items.length} items`);
     
-    const result = await this.searchService.calculateDimensions(dimensionsDto);
+    const result = await this.searchService.calculateDimensions({ items });
     
     this.logger.log(`Dimensions calculated for ${result.items.length} items`);
     return result;
