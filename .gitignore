@@ -43,3 +43,8 @@ lerna-debug.log*
 /analysis/
 *.local.js
 *-local.js
+
+# NEVER commit credentials or tokens
+.git-credentials-local
+github-token.txt
+*.token
