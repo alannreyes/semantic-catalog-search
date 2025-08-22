@@ -19,6 +19,16 @@ export class SearchDto {
     message: 'Segment must be one of: premium, standard, economy'
   })
   segment?: 'premium' | 'standard' | 'economy';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100, { message: 'Cliente must not exceed 100 characters' })
+  cliente?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100, { message: 'Marca must not exceed 100 characters' })
+  marca?: string;
 }
 
 export class WebhookSearchDto {

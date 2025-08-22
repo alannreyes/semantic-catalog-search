@@ -13,6 +13,7 @@ import { Pool, PoolClient } from 'pg';
 import OpenAI from 'openai';
 import { AcronimosService } from '../acronimos/acronimos.service';
 import { OpenAIRateLimiterService } from '../openai-rate-limiter.service';
+import { MSSQLEnrichService } from './mssql-enrich.service';
 import { IsMatchDto } from './dto/ismatch.dto';
 import { SimilDto } from './dto/simil.dto';
 import { DimensionsDto } from './dto/dimensions.dto';
@@ -36,6 +37,7 @@ export class SearchService implements OnModuleDestroy {
     brandExact: number;
     modelExact: number;
     sizeExact: number;
+    clientHistory: number;
   };
   
   // Configuración de thresholds para clasificación de similitud
@@ -51,6 +53,7 @@ export class SearchService implements OnModuleDestroy {
     private readonly logger: Logger,
     private readonly acronimosService: AcronimosService,
     private readonly rateLimiter: OpenAIRateLimiterService,
+    private readonly mssqlEnrichService: MSSQLEnrichService,
   ) {
     // Configuración optimizada del pool de conexiones
     this.pool = new Pool({
@@ -92,7 +95,8 @@ export class SearchService implements OnModuleDestroy {
       costAgreement: parseFloat(this.configService.get<string>('BOOST_COST_AGREEMENT') || '1.15'),
       brandExact: parseFloat(this.configService.get<string>('BOOST_BRAND_EXACT') || '1.20'),
       modelExact: parseFloat(this.configService.get<string>('BOOST_MODEL_EXACT') || '1.15'),
-      sizeExact: parseFloat(this.configService.get<string>('BOOST_SIZE_EXACT') || '1.10')
+      sizeExact: parseFloat(this.configService.get<string>('BOOST_SIZE_EXACT') || '1.10'),
+      clientHistory: parseFloat(this.configService.get<string>('BOOST_CLIENT_HISTORY') || '1.20')
     };
 
     // Configurar thresholds de similitud desde variables de entorno
@@ -131,7 +135,13 @@ export class SearchService implements OnModuleDestroy {
   // Metodo principal de busqueda semantica de productos
   // Coordina todo el proceso: embedding del query, busqueda vectorial, boost por segmento,
   // seleccion con GPT-4o y normalizacion automatica si la similaridad es baja.
-  async searchProducts(query: string, limit: number = 5, segment?: 'premium' | 'standard' | 'economy') {
+  async searchProducts(
+    query: string, 
+    limit: number = 5, 
+    segment?: 'premium' | 'standard' | 'economy',
+    cliente?: string,
+    marca?: string
+  ) {
     const startTime = process.hrtime.bigint();
     let client: PoolClient;
 
@@ -172,7 +182,7 @@ export class SearchService implements OnModuleDestroy {
       );
 
       const initialSearchStart = process.hrtime.bigint();
-      const initialResult = await this.performSemanticSearch(expandedQuery, limit, client, segment, query);
+      const initialResult = await this.performSemanticSearch(expandedQuery, limit, client, segment, query, cliente, marca);
       const initialSearchEnd = process.hrtime.bigint();
       this.logger.log(
         `Búsqueda semántica inicial completada. Similitud: ${initialResult.query_info.similitud}`,
@@ -238,7 +248,9 @@ export class SearchService implements OnModuleDestroy {
         limit,
         client,
         segment,
-        query
+        query,
+        cliente,
+        marca
       );
       const resultAfterNormalizationEnd = process.hrtime.bigint();
       this.logger.log(
@@ -291,7 +303,9 @@ export class SearchService implements OnModuleDestroy {
     limit: number = 5,
     client: PoolClient,
     segment?: 'premium' | 'standard' | 'economy', 
-    originalQueryOverride?: string
+    originalQueryOverride?: string,
+    cliente?: string,
+    marca?: string
   ) {
     const stepStartTime = process.hrtime.bigint();
     
@@ -480,7 +494,9 @@ export class SearchService implements OnModuleDestroy {
         result.rows,
         inputText,
         segment,
-        limit 
+        limit,
+        cliente,
+        marca
       );
       const gptSelectionEnd = process.hrtime.bigint();
       gptSelectionTime = Number(gptSelectionEnd - gptSelectionStart) / 1_000_000;
@@ -566,7 +582,9 @@ export class SearchService implements OnModuleDestroy {
     products: any[],
     normalizedQuery: string,
     segment?: 'premium' | 'standard' | 'economy',
-    limit?: number
+    limit?: number,
+    cliente?: string,
+    marca?: string
   ) {
     const stepStartTime = process.hrtime.bigint();
     
@@ -610,7 +628,7 @@ export class SearchService implements OnModuleDestroy {
         { productos_disponibles: products.length, segment_param_received: segment, segment_type: typeof segment }
       );
 
-      const productsForGPT = products.map((product, index) => {
+      let productsForGPT = products.map((product, index) => {
         const cleanText = (product.descripcion || '').trim();
         const productCode = (product.codigo || '').trim();
         const productMarca = (product.marca || 'N/A').trim();
@@ -637,8 +655,10 @@ export class SearchService implements OnModuleDestroy {
             brand_exact: { applied: false, percentage: 0 },
             model_exact: { applied: false, percentage: 0 },
             size_exact: { applied: false, percentage: 0 },
+            client: { applied: false, percentage: 0, frequency: 0 },
             total_boost: 0
-          }
+          },
+          marca_mssql: undefined as string | undefined
         };
       });
 
@@ -723,24 +743,112 @@ export class SearchService implements OnModuleDestroy {
         }
       });
 
+      // --- ENRIQUECIMIENTO CON MS SQL ---
+      // Aplicar boost de cliente y reordenamiento por marca si están especificados
+      if (cliente || marca) {
+        try {
+          const codigosParaEnriquecer = productsForGPT.slice(0, 20).map(p => p.codigo);
+          
+          // BOOST POR HISTORIAL DE CLIENTE
+          if (cliente) {
+            this.logger.log(`Aplicando boost de historial para cliente: ${cliente}`, SearchService.name);
+            const clientHistory = await this.mssqlEnrichService.getClientPurchaseHistory(cliente, codigosParaEnriquecer);
+            
+            productsForGPT.forEach(product => {
+              const frecuencia = clientHistory.get(product.codigo) || 0;
+              if (frecuencia > 0) {
+                // Aplicar boost basado en frecuencia de compra
+                const clientMultiplier = Math.min(this.boostWeights.clientHistory, 1 + (frecuencia * 0.1));
+                const originalSimilarity = parseFloat(product.adjustedSimilarity || product.vectorSimilarity);
+                const newSimilarity = Math.min(1.0, originalSimilarity * clientMultiplier);
+                product.adjustedSimilarity = newSimilarity.toFixed(4);
+                
+                // Agregar info de boost de cliente
+                product.boostInfo.client.applied = true;
+                product.boostInfo.client.percentage = Math.round((clientMultiplier - 1.0) * 100);
+                product.boostInfo.client.frequency = frecuencia;
+                
+                this.logger.log(
+                  `BOOST CLIENTE ${product.codigo}: ${originalSimilarity} -> ${newSimilarity} (Compras: ${frecuencia}, +${product.boostInfo.client.percentage}%)`,
+                  SearchService.name
+                );
+              }
+            });
+          }
+          
+          // OBTENER MARCAS PARA REORDENAMIENTO
+          if (marca) {
+            this.logger.log(`Obteniendo marcas para reordenamiento: ${marca}`, SearchService.name);
+            const brandMap = await this.mssqlEnrichService.getProductBrands(codigosParaEnriquecer);
+            
+            productsForGPT.forEach(product => {
+              const productBrand = brandMap.get(product.codigo);
+              if (productBrand) {
+                product.marca_mssql = productBrand;
+              }
+            });
+          }
+        } catch (error) {
+          this.logger.error(`Error en enriquecimiento MS SQL: ${error.message}`, SearchService.name);
+          // Continuar sin enriquecimiento si hay error
+        }
+      }
+
       // Reordenar productos por similaridad ajustada
       productsForGPT.sort((a, b) => {
         const aScore = parseFloat(a.adjustedSimilarity || a.vectorSimilarity);
         const bScore = parseFloat(b.adjustedSimilarity || b.vectorSimilarity);
         return bScore - aScore;
       });
+      
+      // REORDENAMIENTO POR MARCA (si se especificó)
+      if (marca) {
+        this.logger.log(`Reordenando por marca: ${marca}`, SearchService.name);
+        
+        // Separar productos por marca
+        const productosMarcaTarget = [];
+        const productosOtrasMarcas = [];
+        
+        productsForGPT.forEach(product => {
+          const productMarca = (product.marca_mssql || product.marca || '').toLowerCase();
+          const targetMarca = marca.toLowerCase();
+          
+          if (productMarca === targetMarca || productMarca.includes(targetMarca)) {
+            productosMarcaTarget.push(product);
+          } else {
+            productosOtrasMarcas.push(product);
+          }
+        });
+        
+        // Reconstruir array con marca objetivo primero
+        productsForGPT = [...productosMarcaTarget, ...productosOtrasMarcas];
+        
+        this.logger.log(
+          `Reordenamiento por marca completado: ${productosMarcaTarget.length} productos de ${marca} al inicio`,
+          SearchService.name
+        );
+      }
 
       // Recopilar información de boost por tipo para todos los candidatos
       const boostSummary = {
         segment_boosted: productsForGPT.filter(p => p.boostInfo.segment.applied).map(p => p.codigo),
         stock_boosted: productsForGPT.filter(p => p.boostInfo.stock.applied).map(p => p.codigo),
         cost_agreement_boosted: productsForGPT.filter(p => p.boostInfo.cost_agreement.applied).map(p => p.codigo),
+        client_history_boosted: productsForGPT.filter(p => p.boostInfo.client?.applied).map(p => ({
+          codigo: p.codigo,
+          frequency: p.boostInfo.client.frequency
+        })),
+        brand_reordered: marca ? productsForGPT.filter(p => {
+          const productMarca = (p.marca_mssql || p.marca || '').toLowerCase();
+          return productMarca === marca.toLowerCase() || productMarca.includes(marca.toLowerCase());
+        }).map(p => p.codigo) : [],
         total_candidates: productsForGPT.length,
         boost_weights_used: {
           segment_preferred: this.boostWeights.segmentPreferred,
           segment_compatible: this.boostWeights.segmentCompatible,
           stock: this.boostWeights.stock,
-          cost_agreement: this.boostWeights.costAgreement
+          cost_agreement: this.boostWeights.costAgreement,
+          client_history: cliente ? this.boostWeights.clientHistory : undefined
         }
       };
 
@@ -1153,7 +1261,9 @@ WAREHOUSE MATCHING RULES:
     products: any[],
     normalizedQuery: string,
     segment?: 'premium' | 'standard' | 'economy',
-    limit?: number
+    limit?: number,
+    cliente?: string,
+    marca?: string
   ) {
     const stepStartTime = process.hrtime.bigint();
     
@@ -1333,7 +1443,9 @@ WAREHOUSE MATCHING RULES:
         })),
         normalizedQuery,
         segment,
-        candidatesForGPT.length
+        candidatesForGPT.length,
+        cliente,
+        marca
       );
 
       // Procesar resultado de GPT JUICIO FINAL

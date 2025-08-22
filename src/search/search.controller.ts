@@ -14,12 +14,14 @@ export class SearchController {
   // API REST moderna - POST /search
   @Post('search')
   async search(@Body() searchDto: SearchDto) {
-    this.logger.log(`Received API search request for: "${searchDto.query}" with segment: ${searchDto.segment || 'none'}`);
+    this.logger.log(`Received API search request for: "${searchDto.query}" with segment: ${searchDto.segment || 'none'}, cliente: ${searchDto.cliente || 'none'}, marca: ${searchDto.marca || 'none'}`);
     
     const result = await this.searchService.searchProducts(
       searchDto.query,
       searchDto.limit || 5,
-      searchDto.segment
+      searchDto.segment,
+      searchDto.cliente,
+      searchDto.marca
     );
     
     return result;
