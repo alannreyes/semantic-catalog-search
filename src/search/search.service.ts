@@ -1348,6 +1348,7 @@ WAREHOUSE MATCHING RULES:
             brand_exact: { applied: false, percentage: 0 },
             model_exact: { applied: false, percentage: 0 },
             size_exact: { applied: false, percentage: 0 },
+            client: { applied: false, percentage: 0, frequency: 0 },
             total_boost: Math.round((totalMultiplier - 1.0) * 100)
           }
         };
