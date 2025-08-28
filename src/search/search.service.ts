@@ -743,51 +743,20 @@ export class SearchService implements OnModuleDestroy {
         }
       });
 
-      // --- ENRIQUECIMIENTO CON MS SQL ---
-      // Aplicar boost de cliente y reordenamiento por marca si están especificados
-      if (cliente || marca) {
+      // --- OBTENER MARCAS PARA REORDENAMIENTO ---
+      if (marca) {
         try {
           const codigosParaEnriquecer = productsForGPT.slice(0, 20).map(p => p.codigo);
           
-          // BOOST POR HISTORIAL DE CLIENTE
-          if (cliente) {
-            this.logger.log(`Aplicando boost de historial para cliente: ${cliente}`, SearchService.name);
-            const clientHistory = await this.mssqlEnrichService.getClientPurchaseHistory(cliente, codigosParaEnriquecer);
-            
-            productsForGPT.forEach(product => {
-              const frecuencia = clientHistory.get(product.codigo) || 0;
-              if (frecuencia > 0) {
-                // Aplicar boost basado en frecuencia de compra
-                const clientMultiplier = Math.min(this.boostWeights.clientHistory, 1 + (frecuencia * 0.1));
-                const originalSimilarity = parseFloat(product.adjustedSimilarity || product.vectorSimilarity);
-                const newSimilarity = Math.min(1.0, originalSimilarity * clientMultiplier);
-                product.adjustedSimilarity = newSimilarity.toFixed(4);
-                
-                // Agregar info de boost de cliente
-                product.boostInfo.client.applied = true;
-                product.boostInfo.client.percentage = Math.round((clientMultiplier - 1.0) * 100);
-                product.boostInfo.client.frequency = frecuencia;
-                
-                this.logger.log(
-                  `BOOST CLIENTE ${product.codigo}: ${originalSimilarity} -> ${newSimilarity} (Compras: ${frecuencia}, +${product.boostInfo.client.percentage}%)`,
-                  SearchService.name
-                );
-              }
-            });
-          }
+          this.logger.log(`Obteniendo marcas para reordenamiento: ${marca}`, SearchService.name);
+          const brandMap = await this.mssqlEnrichService.getProductBrands(codigosParaEnriquecer);
           
-          // OBTENER MARCAS PARA REORDENAMIENTO
-          if (marca) {
-            this.logger.log(`Obteniendo marcas para reordenamiento: ${marca}`, SearchService.name);
-            const brandMap = await this.mssqlEnrichService.getProductBrands(codigosParaEnriquecer);
-            
-            productsForGPT.forEach(product => {
-              const productBrand = brandMap.get(product.codigo);
-              if (productBrand) {
-                product.marca_mssql = productBrand;
-              }
-            });
-          }
+          productsForGPT.forEach(product => {
+            const productBrand = brandMap.get(product.codigo);
+            if (productBrand) {
+              product.marca_mssql = productBrand;
+            }
+          });
         } catch (error) {
           this.logger.error(`Error en enriquecimiento MS SQL: ${error.message}`, SearchService.name);
           // Continuar sin enriquecimiento si hay error
@@ -1295,11 +1264,28 @@ WAREHOUSE MATCHING RULES:
       this.logger.log(
         `Iniciando selección híbrida para: "${originalQuery}" con ${products.length} productos`,
         SearchService.name,
-        { segment_preference: segment }
+        { segment_preference: segment, cliente: cliente || 'none' }
       );
 
+      // --- OBTENER HISTORIAL DE CLIENTE (SI APLICA) ---
+      let clientHistory = new Map<string, number>();
+      if (cliente) {
+        try {
+          this.logger.log(`Obteniendo historial de compras para cliente: ${cliente}`, SearchService.name);
+          const codigosParaBuscar = products.slice(0, 20).map(p => p.codigo);
+          clientHistory = await this.mssqlEnrichService.getClientPurchaseHistory(cliente, codigosParaBuscar);
+          this.logger.log(
+            `Historial obtenido: ${clientHistory.size} productos con compras previas`,
+            SearchService.name
+          );
+        } catch (error) {
+          this.logger.error(`Error obteniendo historial de cliente: ${error.message}`, SearchService.name);
+          // Continuar sin historial si hay error
+        }
+      }
+
       // --- PREPARAR PRODUCTOS CON BOOST ---
-      // Calcular boost y similaridad ajustada para todos los productos
+      // Calcular boost y similaridad ajustada para todos los productos (incluyendo cliente)
       const productsWithBoost = products.map((product, index) => {
         const cleanText = (product.descripcion || '').trim();
         const productCode = (product.codigo || '').trim();
@@ -1327,7 +1313,20 @@ WAREHOUSE MATCHING RULES:
 
         const stockMultiplier = hasStock ? this.boostWeights.stock : 1.0;
         const costMultiplier = hasCostAgreement ? this.boostWeights.costAgreement : 1.0;
-        const totalMultiplier = segmentMultiplier * stockMultiplier * costMultiplier;
+        
+        // Calcular boost de cliente
+        const purchaseFrequency = clientHistory.get(productCode) || 0;
+        let clientMultiplier = 1.0;
+        if (purchaseFrequency > 0) {
+          // El boost aumenta con la frecuencia, pero con un límite máximo
+          clientMultiplier = Math.min(this.boostWeights.clientHistory, 1 + (purchaseFrequency * 0.01));
+          this.logger.debug(
+            `Boost cliente para ${productCode}: frecuencia=${purchaseFrequency}, multiplicador=${clientMultiplier.toFixed(2)}`,
+            SearchService.name
+          );
+        }
+        
+        const totalMultiplier = segmentMultiplier * stockMultiplier * costMultiplier * clientMultiplier;
         const adjustedSimilarity = Math.min(1.0, originalSimilarity * totalMultiplier);
 
         return {
@@ -1348,7 +1347,11 @@ WAREHOUSE MATCHING RULES:
             brand_exact: { applied: false, percentage: 0 },
             model_exact: { applied: false, percentage: 0 },
             size_exact: { applied: false, percentage: 0 },
-            client: { applied: false, percentage: 0, frequency: 0 },
+            client: { 
+              applied: purchaseFrequency > 0, 
+              percentage: Math.round((clientMultiplier - 1.0) * 100), 
+              frequency: purchaseFrequency 
+            },
             total_boost: Math.round((totalMultiplier - 1.0) * 100)
           }
         };
