@@ -6,8 +6,14 @@ import * as sql from 'mssql';
 export class MSSQLEnrichService {
   private readonly logger = new Logger(MSSQLEnrichService.name);
   private mssqlPool: sql.ConnectionPool | null = null;
+  private readonly clientHistoryYears: number;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService) {
+    this.clientHistoryYears = parseInt(
+      this.configService.get<string>('CLIENT_HISTORY_YEARS') || '1',
+      10
+    );
+  }
 
   async connectToMsSQL(): Promise<sql.ConnectionPool> {
     if (this.mssqlPool && this.mssqlPool.connected) {
@@ -64,7 +70,7 @@ export class MSSQLEnrichService {
         INNER JOIN pe1000 b WITH(NOLOCK) 
           ON a.pe2_tipdoc = b.pe1_tipdoc 
           AND a.pe2_numped = b.pe1_numped 
-        WHERE pe2_fchped >= DATEADD(year,-1,GETDATE()) 
+        WHERE pe2_fchped >= DATEADD(year,-${this.clientHistoryYears},GETDATE()) 
           AND PE2_ESTREG = 'A' 
           AND PE2_CODMOT <> '10' 
           AND b.PE1_FLGANU = '0' 
@@ -83,7 +89,7 @@ export class MSSQLEnrichService {
         historyMap.set(row.codigo, row.frecuencia_compra);
       });
 
-      this.logger.log(`Historial de cliente ${cliente}: ${historyMap.size} productos con compras`);
+      this.logger.log(`Historial de cliente ${cliente}: ${historyMap.size} productos con compras (últimos ${this.clientHistoryYears} años)`);
       return historyMap;
     } catch (error) {
       this.logger.error(`Error obteniendo historial de cliente: ${error.message}`);

@@ -1531,8 +1531,13 @@ WAREHOUSE MATCHING RULES:
         boost_tags: [
           ...(product.boostInfo.segment.applied ? ['segment'] : []),
           ...(product.boostInfo.stock.applied ? ['stock'] : []),
-          ...(product.boostInfo.cost_agreement.applied ? ['cost'] : [])
-        ]
+          ...(product.boostInfo.cost_agreement.applied ? ['cost'] : []),
+          ...(product.boostInfo.client?.applied ? ['client'] : [])
+        ],
+        client_history: product.boostInfo.client?.applied ? {
+          purchase_frequency: product.boostInfo.client.frequency,
+          boost_applied: product.boostInfo.client.percentage
+        } : undefined
       }));
 
       // Boost summary
@@ -1540,6 +1545,13 @@ WAREHOUSE MATCHING RULES:
         products_with_stock: productsWithBoost.filter(p => p.articulo_stock).map(p => p.codigo),
         products_with_pricing: productsWithBoost.filter(p => p.lista_costos).map(p => p.codigo),
         segment_matches: productsWithBoost.filter(p => p.boostInfo.segment.applied).map(p => p.codigo),
+        client_purchase_history: productsWithBoost
+          .filter(p => p.boostInfo.client?.applied)
+          .map(p => ({
+            codigo: p.codigo,
+            purchase_frequency: p.boostInfo.client.frequency,
+            boost_percentage: p.boostInfo.client.percentage
+          })),
         boost_weights_used: this.boostWeights
       };
 
@@ -1573,7 +1585,11 @@ WAREHOUSE MATCHING RULES:
           has_stock: selectedProduct.articulo_stock,
           has_cost_agreement: selectedProduct.lista_costos,
           boost_total_percent: selectedProduct.boostInfo.total_boost,
-          boost_reasons: alternatives.find(a => a.codigo === selectedProduct.codigo)?.boost_tags || []
+          boost_reasons: alternatives.find(a => a.codigo === selectedProduct.codigo)?.boost_tags || [],
+          client_history: selectedProduct.boostInfo.client?.applied ? {
+            purchase_frequency: selectedProduct.boostInfo.client.frequency,
+            boost_applied: selectedProduct.boostInfo.client.percentage
+          } : undefined
         },
         alternatives: alternatives,
         boost_summary: boostSummary,
