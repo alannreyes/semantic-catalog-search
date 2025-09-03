@@ -22,7 +22,9 @@ export class SearchV2Service implements OnModuleDestroy {
     stock: number;
     costAgreement: number;
     brandExact: number;
+    brandExplicit: number; // Boost cuando marca es enviada como parámetro
     modelExact: number;
+    codeExplicit: number; // Boost cuando codigo_fabrica es enviado como parámetro
     sizeExact: number;
     clientHistory: number;
   };
@@ -75,7 +77,9 @@ export class SearchV2Service implements OnModuleDestroy {
       stock: parseFloat(this.configService.get<string>('BOOST_STOCK') || '1.25'),
       costAgreement: parseFloat(this.configService.get<string>('BOOST_COST_AGREEMENT') || '1.15'),
       brandExact: parseFloat(this.configService.get<string>('BOOST_BRAND_EXACT') || '1.20'),
+      brandExplicit: parseFloat(this.configService.get<string>('BOOST_BRAND_EXPLICIT') || '1.50'), // 50% boost cuando se especifica marca
       modelExact: parseFloat(this.configService.get<string>('BOOST_MODEL_EXACT') || '1.15'),
+      codeExplicit: parseFloat(this.configService.get<string>('BOOST_CODE_EXPLICIT') || '2.00'), // 100% boost cuando se especifica código
       sizeExact: parseFloat(this.configService.get<string>('BOOST_SIZE_EXACT') || '1.10'),
       clientHistory: parseFloat(this.configService.get<string>('BOOST_CLIENT_HISTORY') || '1.20')
     };
@@ -105,7 +109,8 @@ export class SearchV2Service implements OnModuleDestroy {
     limit: number = 5,
     segment?: 'premium' | 'standard' | 'economy',
     cliente?: string,
-    marca?: string
+    marca?: string,
+    codigo_fabrica?: string
   ) {
     const startTime = process.hrtime.bigint();
     let client: PoolClient;
@@ -169,7 +174,7 @@ export class SearchV2Service implements OnModuleDestroy {
       }
 
       // Aplicar boosts a todos los productos
-      const boostedProducts = this.applyBoosts(result.rows, query, segment, cliente, marca);
+      const boostedProducts = this.applyBoosts(result.rows, query, segment, cliente, marca, codigo_fabrica);
       
       // Ordenar por similitud ajustada y tomar los mejores
       boostedProducts.sort((a, b) => b.adjusted_similarity - a.adjusted_similarity);
@@ -223,7 +228,7 @@ export class SearchV2Service implements OnModuleDestroy {
     }, `embedding-${Date.now()}`);
   }
 
-  private applyBoosts(products: any[], query: string, segment?: string, cliente?: string, marca?: string) {
+  private applyBoosts(products: any[], query: string, segment?: string, cliente?: string, marca?: string, codigo_fabrica?: string) {
     const queryLower = query.toLowerCase();
     
     return products.map(product => {
@@ -253,16 +258,29 @@ export class SearchV2Service implements OnModuleDestroy {
         boostReasons.push('Con acuerdo de costos');
       }
 
-      // Boost por marca exacta
-      if (marca && product.marca && product.marca.toLowerCase().includes(marca.toLowerCase())) {
+      // Boost por marca cuando está en el query
+      if (product.marca && queryLower.includes(product.marca.toLowerCase())) {
         boostMultiplier *= this.boostWeights.brandExact;
-        boostReasons.push(`Marca coincidente (${product.marca})`);
+        boostReasons.push(`Marca en query (${product.marca})`);
+      }
+      
+      // Boost adicional cuando marca es enviada como parámetro explícito
+      if (marca && product.marca && product.marca.toLowerCase().includes(marca.toLowerCase())) {
+        boostMultiplier *= this.boostWeights.brandExplicit;
+        boostReasons.push(`Marca solicitada (${product.marca})`);
       }
 
-      // Boost por modelo/código
+      // Boost por modelo/código cuando está en el query
       if (product.codigo_fabrica && queryLower.includes(product.codigo_fabrica.toLowerCase())) {
         boostMultiplier *= this.boostWeights.modelExact;
-        boostReasons.push(`Modelo coincidente (${product.codigo_fabrica})`);
+        boostReasons.push(`Modelo en query (${product.codigo_fabrica})`);
+      }
+      
+      // Boost máximo cuando codigo_fabrica es enviado como parámetro explícito
+      if (codigo_fabrica && product.codigo_fabrica && 
+          product.codigo_fabrica.toLowerCase() === codigo_fabrica.toLowerCase()) {
+        boostMultiplier *= this.boostWeights.codeExplicit;
+        boostReasons.push(`Código exacto (${product.codigo_fabrica})`);
       }
 
       return {

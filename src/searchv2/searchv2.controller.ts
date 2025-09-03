@@ -20,7 +20,8 @@ export class SearchV2Controller {
       searchDto.limit || 5,
       searchDto.segment,
       searchDto.cliente,
-      searchDto.marca
+      searchDto.marca,
+      searchDto.codigo_fabrica
     );
     
     this.logger.log(

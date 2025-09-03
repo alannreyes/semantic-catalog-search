@@ -29,4 +29,9 @@ export class SearchV2Dto {
   @IsString()
   @MaxLength(100, { message: 'Marca must not exceed 100 characters' })
   marca?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100, { message: 'Codigo_fabrica must not exceed 100 characters' })
+  codigo_fabrica?: string;
 }
