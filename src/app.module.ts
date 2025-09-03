@@ -8,6 +8,7 @@ import { RateLimitInterceptor } from './rate-limit.interceptor';
 import { Logger } from '@nestjs/common';
 import * as Joi from 'joi';
 import { SearchModule } from './search/search.module';
+import { SearchV2Module } from './searchv2/searchv2.module';
 import { SegmentsModule } from './segments/segments.module';
 import { AcronimosModule } from './acronimos/acronimos.module';
 import { MigrationModule } from './migration/migration.module';
@@ -45,6 +46,7 @@ import { SyncModule } from './sync/sync.module';
     }),
     ScheduleModule.forRoot(),
     SearchModule,
+    SearchV2Module,
     SegmentsModule,
     AcronimosModule,
     MigrationModule,
