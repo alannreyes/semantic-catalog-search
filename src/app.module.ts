@@ -52,7 +52,7 @@ import { LogsModule } from './logs/logs.module';
         type: 'postgres',
         url: process.env.DATABASE_URL,
         entities: [LogEntity],
-        synchronize: false, // Cambia a true solo en desarrollo
+        synchronize: false,
       }),
     }),
     TypeOrmModule.forFeature([LogEntity]),
@@ -63,8 +63,8 @@ import { LogsModule } from './logs/logs.module';
     AcronimosModule,
     MigrationModule,
     HealthModule,
-  SyncModule,
-  LogsModule,
+    SyncModule,
+    LogsModule,
   ],
   controllers: [VisionController],
   providers: [

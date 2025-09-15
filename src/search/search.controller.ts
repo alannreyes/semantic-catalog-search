@@ -9,7 +9,7 @@ import { DimensionsDto } from './dto/dimensions.dto';
 @Controller()
 export class SearchController {
   private readonly logger = new Logger(SearchController.name);
-  
+
   constructor(
     private readonly searchService: SearchService,
     private readonly loggerService: LoggerService
