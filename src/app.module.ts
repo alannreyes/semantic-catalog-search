@@ -14,6 +14,9 @@ import { AcronimosModule } from './acronimos/acronimos.module';
 import { MigrationModule } from './migration/migration.module';
 import { HealthModule } from './health/health.module';
 import { SyncModule } from './sync/sync.module';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { LogEntity } from './logs/log.entity';
+import { LogsModule } from './logs/logs.module';
 
 @Module({
   imports: [
@@ -44,6 +47,15 @@ import { SyncModule } from './sync/sync.module';
         POSTGRES_MIGRATION_TABLE: Joi.string().default('productos_bip'),
       }),
     }),
+    TypeOrmModule.forRootAsync({
+      useFactory: () => ({
+        type: 'postgres',
+        url: process.env.DATABASE_URL,
+        entities: [LogEntity],
+        synchronize: false, // Cambia a true solo en desarrollo
+      }),
+    }),
+    TypeOrmModule.forFeature([LogEntity]),
     ScheduleModule.forRoot(),
     SearchModule,
     SearchV2Module,
@@ -51,7 +63,8 @@ import { SyncModule } from './sync/sync.module';
     AcronimosModule,
     MigrationModule,
     HealthModule,
-    SyncModule,
+  SyncModule,
+  LogsModule,
   ],
   controllers: [VisionController],
   providers: [
